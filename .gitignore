@@ -1,0 +1,17 @@
+# Save data
+*.sav
+
+# Save states
+*.state
+
+# Build artifacts
+/nanogoadvance
+/smoketest
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp

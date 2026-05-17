@@ -1,0 +1,115 @@
+// io_addr.go ⇄ src/nba/src/bus/io.hh — IO register address constants.
+//
+// Single source of truth for every MMIO register address the GBA exposes.
+// Mirrored verbatim from upstream so anyone cross-referencing can find the
+// same names on both sides.
+package bus
+
+const (
+	DISPCNT     uint32 = 0x04000000
+	GREENSWAP   uint32 = 0x04000002
+	DISPSTAT    uint32 = 0x04000004
+	VCOUNT      uint32 = 0x04000006
+	BG0CNT      uint32 = 0x04000008
+	BG1CNT      uint32 = 0x0400000A
+	BG2CNT      uint32 = 0x0400000C
+	BG3CNT      uint32 = 0x0400000E
+	BG0HOFS     uint32 = 0x04000010
+	BG0VOFS     uint32 = 0x04000012
+	BG1HOFS     uint32 = 0x04000014
+	BG1VOFS     uint32 = 0x04000016
+	BG2HOFS     uint32 = 0x04000018
+	BG2VOFS     uint32 = 0x0400001A
+	BG3HOFS     uint32 = 0x0400001C
+	BG3VOFS     uint32 = 0x0400001E
+	BG2PA       uint32 = 0x04000020
+	BG2PB       uint32 = 0x04000022
+	BG2PC       uint32 = 0x04000024
+	BG2PD       uint32 = 0x04000026
+	BG2X        uint32 = 0x04000028
+	BG2Y        uint32 = 0x0400002C
+	BG3PA       uint32 = 0x04000030
+	BG3PB       uint32 = 0x04000032
+	BG3PC       uint32 = 0x04000034
+	BG3PD       uint32 = 0x04000036
+	BG3X        uint32 = 0x04000038
+	BG3Y        uint32 = 0x0400003C
+	WIN0H       uint32 = 0x04000040
+	WIN1H       uint32 = 0x04000042
+	WIN0V       uint32 = 0x04000044
+	WIN1V       uint32 = 0x04000046
+	WININ       uint32 = 0x04000048
+	WINOUT      uint32 = 0x0400004A
+	MOSAIC      uint32 = 0x0400004C
+	BLDCNT      uint32 = 0x04000050
+	BLDALPHA    uint32 = 0x04000052
+	BLDY        uint32 = 0x04000054
+	SOUND1CNT_L uint32 = 0x04000060
+	SOUND1CNT_H uint32 = 0x04000062
+	SOUND1CNT_X uint32 = 0x04000064
+	SOUND2CNT_L uint32 = 0x04000068
+	SOUND2CNT_H uint32 = 0x0400006C
+	SOUND3CNT_L uint32 = 0x04000070
+	SOUND3CNT_H uint32 = 0x04000072
+	SOUND3CNT_X uint32 = 0x04000074
+	SOUND4CNT_L uint32 = 0x04000078
+	SOUND4CNT_H uint32 = 0x0400007C
+	SOUNDCNT_L  uint32 = 0x04000080
+	SOUNDCNT_H  uint32 = 0x04000082
+	SOUNDCNT_X  uint32 = 0x04000084
+	SOUNDBIAS   uint32 = 0x04000088
+	WAVE_RAM    uint32 = 0x04000090
+	FIFO_A      uint32 = 0x040000A0
+	FIFO_B      uint32 = 0x040000A4
+	DMA0SAD     uint32 = 0x040000B0
+	DMA0DAD     uint32 = 0x040000B4
+	DMA0CNT_L   uint32 = 0x040000B8
+	DMA0CNT_H   uint32 = 0x040000BA
+	DMA1SAD     uint32 = 0x040000BC
+	DMA1DAD     uint32 = 0x040000C0
+	DMA1CNT_L   uint32 = 0x040000C4
+	DMA1CNT_H   uint32 = 0x040000C6
+	DMA2SAD     uint32 = 0x040000C8
+	DMA2DAD     uint32 = 0x040000CC
+	DMA2CNT_L   uint32 = 0x040000D0
+	DMA2CNT_H   uint32 = 0x040000D2
+	DMA3SAD     uint32 = 0x040000D4
+	DMA3DAD     uint32 = 0x040000D8
+	DMA3CNT_L   uint32 = 0x040000DC
+	DMA3CNT_H   uint32 = 0x040000DE
+	TM0CNT_L    uint32 = 0x04000100
+	TM0CNT_H    uint32 = 0x04000102
+	TM1CNT_L    uint32 = 0x04000104
+	TM1CNT_H    uint32 = 0x04000106
+	TM2CNT_L    uint32 = 0x04000108
+	TM2CNT_H    uint32 = 0x0400010A
+	TM3CNT_L    uint32 = 0x0400010C
+	TM3CNT_H    uint32 = 0x0400010E
+	SIODATA32_L uint32 = 0x04000120
+	SIODATA32_H uint32 = 0x04000122
+	SIOMULTI0   uint32 = 0x04000120
+	SIOMULTI1   uint32 = 0x04000122
+	SIOMULTI2   uint32 = 0x04000124
+	SIOMULTI3   uint32 = 0x04000126
+	SIOCNT      uint32 = 0x04000128
+	SIOMLT_SEND uint32 = 0x0400012A
+	SIODATA8    uint32 = 0x0400012A
+	KEYINPUT    uint32 = 0x04000130
+	KEYCNT      uint32 = 0x04000132
+	RCNT        uint32 = 0x04000134
+	JOYCNT      uint32 = 0x04000140
+	JOY_RECV    uint32 = 0x04000150
+	JOY_TRANS   uint32 = 0x04000154
+	JOYSTAT     uint32 = 0x04000158
+	IE          uint32 = 0x04000200
+	IF          uint32 = 0x04000202
+	WAITCNT     uint32 = 0x04000204
+	IME         uint32 = 0x04000208
+	POSTFLG     uint32 = 0x04000300
+	HALTCNT     uint32 = 0x04000301
+
+	MGBA_LOG_STRING_LO uint32 = 0x04FFF600
+	MGBA_LOG_STRING_HI uint32 = 0x04FFF700
+	MGBA_LOG_SEND      uint32 = 0x04FFF700
+	MGBA_LOG_ENABLE    uint32 = 0x04FFF780
+)
