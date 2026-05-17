@@ -4,7 +4,7 @@ package timer
 import "github.com/mnmlyw/nanogoadvance/internal/savestate"
 
 func (t *Timer) LoadState(s *savestate.SaveState) {
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		reload := s.Timer[i].Reload
 		control := s.Timer[i].Control
 
@@ -33,7 +33,7 @@ func (t *Timer) LoadState(s *savestate.SaveState) {
 }
 
 func (t *Timer) CopyState(s *savestate.SaveState) {
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s.Timer[i].Counter = t.readCounter(&t.channels[i])
 		s.Timer[i].Reload = t.channels[i].reload
 		s.Timer[i].Control = t.readControl(&t.channels[i])

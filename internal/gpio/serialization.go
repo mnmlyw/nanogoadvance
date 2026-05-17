@@ -45,7 +45,7 @@ func (r *RTC) LoadState(s *savestate.SaveState) {
 	r.control.unknown2 = s.GPIO.RTC.Control.Unknown2
 	r.control.mode24h = s.GPIO.RTC.Control.Mode24h
 	r.control.poweroff = s.GPIO.RTC.Control.Poweroff
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		r.buffer[i] = s.GPIO.RTC.Buffer[i]
 	}
 }
@@ -61,7 +61,7 @@ func (r *RTC) CopyState(s *savestate.SaveState) {
 	s.GPIO.RTC.Control.Unknown2 = r.control.unknown2
 	s.GPIO.RTC.Control.Mode24h = r.control.mode24h
 	s.GPIO.RTC.Control.Poweroff = r.control.poweroff
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		s.GPIO.RTC.Buffer[i] = r.buffer[i]
 	}
 }

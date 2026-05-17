@@ -159,11 +159,11 @@ type Bus struct {
 	// scheduler timestamp; each DidAccess* returns true if the PPU
 	// touched that memory region in the current cycle. ⇄ upstream's
 	// hw.ppu.Sync() + DidAccess{PRAM,VRAM_BG,VRAM_OBJ,OAM}.
-	PPUSyncHook         func()
-	DidAccessPRAMHook   func() bool
-	DidAccessVRAMBGHook func() bool
+	PPUSyncHook          func()
+	DidAccessPRAMHook    func() bool
+	DidAccessVRAMBGHook  func() bool
 	DidAccessVRAMOBJHook func() bool
-	DidAccessOAMHook    func() bool
+	DidAccessOAMHook     func() bool
 
 	// ParallelInternalCPUCycleLimit ⇄ Bus::parallel_internal_cpu_cycle_limit.
 	// Number of CPU internal cycles that can run free (zero scheduler
@@ -180,15 +180,15 @@ type Bus struct {
 // prefetchBuffer ⇄ Bus::prefetch struct in bus/bus.hh. Tracks the in-flight
 // gamepak prefetch (active, capacity, countdown, addresses).
 type prefetchBuffer struct {
-	active       bool
-	thumb        bool
-	opcodeWidth  uint32
-	capacity     int
-	count        int
-	countdown    int64
-	duty         int64
-	lastAddress  uint32 // address of the slot currently being fetched
-	headAddress  uint32 // address of the next slot to dispense
+	active      bool
+	thumb       bool
+	opcodeWidth uint32
+	capacity    int
+	count       int
+	countdown   int64
+	duty        int64
+	lastAddress uint32 // address of the slot currently being fetched
+	headAddress uint32 // address of the next slot to dispense
 }
 
 func New(s *scheduler.Scheduler) *Bus {
@@ -222,7 +222,7 @@ func (b *Bus) UpdateWaitStateTable() {
 	const s = 1 // Access::Sequential
 	w := &b.Waitcnt
 	sram := nseq[w.SRAM]
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		// ROM WS0/WS1/WS2 — 16-bit non-sequential
 		b.wait16[n][0x8+i] = nseq[w.WS0[n]]
 		b.wait16[n][0xA+i] = nseq[w.WS1[n]]
@@ -674,7 +674,7 @@ func (b *Bus) readByteAt(addr uint32) uint8 {
 		// Upstream Bus::Read<u8> on cart ROM goes through ReadROM16 then
 		// shifts — so the GPIO range is reachable from byte reads too.
 		if b.GPIO != nil && (off&^1) >= 0xC4 && (off&^1) <= 0xC8 && b.GPIO.IsReadable() {
-			return b.GPIO.Read(off &^ 1) >> ((off & 1) << 3)
+			return b.GPIO.Read(off&^1) >> ((off & 1) << 3)
 		}
 		if int(off) < len(b.ROM) {
 			return b.ROM[off]
@@ -757,7 +757,7 @@ func (b *Bus) WriteHalf(addr uint32, v uint16, access Access) {
 	page := (addr >> 24) & 0xF
 	b.stepAt(page, addr, access, 16)
 	b.LastAccess = access
-	raw := addr           // preserve for SRAM (upstream skips alignment there)
+	raw := addr // preserve for SRAM (upstream skips alignment there)
 	addr &= ^uint32(1)
 	switch page {
 	case 0x2:
@@ -1084,7 +1084,7 @@ func (b *Bus) contendedSteps(cycles int, didAccess func() bool) {
 		b.Step(int64(cycles))
 		return
 	}
-	for i := 0; i < cycles; i++ {
+	for range cycles {
 		for {
 			b.Step(1)
 			b.PPUSyncHook()

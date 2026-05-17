@@ -17,7 +17,7 @@ type Sample interface {
 // resamplerBase ⇄ Resampler<T> in resampler.hh (data members + the shared
 // SetSampleRates path).
 type resamplerBase[T any] struct {
-	output            WriteStream[T]
+	output             WriteStream[T]
 	resamplePhaseShift float32
 }
 
@@ -61,7 +61,7 @@ func NewCosineResampler(output WriteStream[StereoSample[float32]]) *CosineResamp
 	r := &CosineResampler{}
 	r.output = output
 	r.resamplePhaseShift = 1
-	for i := 0; i < cosineLUTSize; i++ {
+	for i := range cosineLUTSize {
 		r.lut[i] = float32((math.Cos(math.Pi*float64(i)/float64(cosineLUTSize-1)) + 1.0) * 0.5)
 	}
 	return r
@@ -158,7 +158,7 @@ func (r *SincResampler) SetSampleRates(in, out float32) {
 	}
 	kernelSum := 0.0
 	for n := 0; n < r.points; n++ {
-		for m := 0; m < sincLUTResolution; m++ {
+		for m := range sincLUTResolution {
 			t := float64(m) / float64(sincLUTResolution)
 			x1 := math.Pi*(t-float64(n)+float64(r.points)/2.0) + 1e-6
 			x2 := 2 * math.Pi * (float64(n) + t) / float64(r.points)

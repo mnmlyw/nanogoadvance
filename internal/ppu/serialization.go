@@ -21,13 +21,13 @@ func (p *PPU) LoadState(s *savestate.SaveState) {
 	p.GREENSWAP = io.GREENSWAP
 	p.DISPSTAT.WriteHalf(io.DISPSTAT)
 
-	for id := 0; id < 4; id++ {
+	for id := range 4 {
 		p.BGCNT[id].WriteHalf(io.BGCNT[id])
 		p.BGHOFS[id] = io.BGHOFS[id]
 		p.BGVOFS[id] = io.BGVOFS[id]
 	}
 
-	for id := 0; id < 2; id++ {
+	for id := range 2 {
 		p.BGPA[id] = int16(io.BGPA[id])
 		p.BGPB[id] = int16(io.BGPB[id])
 		p.BGPC[id] = int16(io.BGPC[id])
@@ -81,13 +81,13 @@ func (p *PPU) CopyState(s *savestate.SaveState) {
 	io.DISPSTAT = p.DISPSTAT.ReadHalf()
 	io.VCOUNT = p.VCOUNT
 
-	for id := 0; id < 4; id++ {
+	for id := range 4 {
 		io.BGCNT[id] = p.BGCNT[id].ReadHalf()
 		io.BGHOFS[id] = p.BGHOFS[id]
 		io.BGVOFS[id] = p.BGVOFS[id]
 	}
 
-	for id := 0; id < 2; id++ {
+	for id := range 2 {
 		io.BGPA[id] = uint16(p.BGPA[id])
 		io.BGPB[id] = uint16(p.BGPB[id])
 		io.BGPC[id] = uint16(p.BGPC[id])

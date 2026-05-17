@@ -7,14 +7,14 @@ package ppu
 
 // DisplayControl ⇄ DisplayControl in registers.hh.
 type DisplayControl struct {
-	Hword            uint16
-	Mode             int
-	CGBMode          int
-	Frame            int
-	HBlankOAMAccess  int
-	OAMMapping1D     int
-	ForcedBlank      int
-	Enable           [8]int
+	Hword           uint16
+	Mode            int
+	CGBMode         int
+	Frame           int
+	HBlankOAMAccess int
+	OAMMapping1D    int
+	ForcedBlank     int
+	Enable          [8]int
 }
 
 func (d *DisplayControl) Reset() { d.Write(0, 0); d.Write(1, 0) }
@@ -41,25 +41,25 @@ func (d *DisplayControl) Write(address int, value uint8) {
 		d.ForcedBlank = int((value >> 7) & 1)
 	case 1:
 		d.Hword = (d.Hword & 0x00FF) | (uint16(value) << 8)
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			d.Enable[i] = int((value >> i) & 1)
 		}
 	}
 }
 
-func (d *DisplayControl) ReadHalf() uint16  { return uint16(d.Read(0)) | uint16(d.Read(1))<<8 }
+func (d *DisplayControl) ReadHalf() uint16   { return uint16(d.Read(0)) | uint16(d.Read(1))<<8 }
 func (d *DisplayControl) WriteHalf(v uint16) { d.Write(0, uint8(v)); d.Write(1, uint8(v>>8)) }
 
 // DisplayStatus ⇄ DisplayStatus. We omit the PPU back-reference and instead
 // expose UpdateVerticalCounterFlag through the PPU when state changes.
 type DisplayStatus struct {
-	VBlankFlag       int
-	HBlankFlag       int
-	VCountFlag       int
-	VBlankIRQEnable  int
-	HBlankIRQEnable  int
-	VCountIRQEnable  int
-	VCountSetting    int
+	VBlankFlag      int
+	HBlankFlag      int
+	VCountFlag      int
+	VBlankIRQEnable int
+	HBlankIRQEnable int
+	VCountIRQEnable int
+	VCountSetting   int
 }
 
 func (d *DisplayStatus) Reset() { *d = DisplayStatus{} }
@@ -90,7 +90,7 @@ func (d *DisplayStatus) Write(address int, value uint8) {
 	}
 }
 
-func (d *DisplayStatus) ReadHalf() uint16  { return uint16(d.Read(0)) | uint16(d.Read(1))<<8 }
+func (d *DisplayStatus) ReadHalf() uint16   { return uint16(d.Read(0)) | uint16(d.Read(1))<<8 }
 func (d *DisplayStatus) WriteHalf(v uint16) { d.Write(0, uint8(v)); d.Write(1, uint8(v>>8)) }
 
 // BackgroundControl ⇄ BackgroundControl. ID is needed because BG0/1 ignore
@@ -142,7 +142,7 @@ func (b *BackgroundControl) Write(address int, value uint8) {
 	}
 }
 
-func (b *BackgroundControl) ReadHalf() uint16  { return uint16(b.Read(0)) | uint16(b.Read(1))<<8 }
+func (b *BackgroundControl) ReadHalf() uint16   { return uint16(b.Read(0)) | uint16(b.Read(1))<<8 }
 func (b *BackgroundControl) WriteHalf(v uint16) { b.Write(0, uint8(v)); b.Write(1, uint8(v>>8)) }
 
 // ReferencePoint ⇄ BG affine reference point (BG2X, BG2Y, BG3X, BG3Y).
@@ -192,12 +192,12 @@ func (b *BlendControl) Read(address int) uint8 {
 	v := uint8(0)
 	switch address {
 	case 0:
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			v |= uint8(b.Targets[0][i]) << i
 		}
 		v |= uint8(b.SFX) << 6
 	case 1:
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			v |= uint8(b.Targets[1][i]) << i
 		}
 	}
@@ -207,18 +207,18 @@ func (b *BlendControl) Read(address int) uint8 {
 func (b *BlendControl) Write(address int, value uint8) {
 	switch address {
 	case 0:
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			b.Targets[0][i] = int((value >> i) & 1)
 		}
 		b.SFX = BlendEffect(value >> 6)
 	case 1:
-		for i := 0; i < 6; i++ {
+		for i := range 6 {
 			b.Targets[1][i] = int((value >> i) & 1)
 		}
 	}
 }
 
-func (b *BlendControl) ReadHalf() uint16  { return uint16(b.Read(0)) | uint16(b.Read(1))<<8 }
+func (b *BlendControl) ReadHalf() uint16   { return uint16(b.Read(0)) | uint16(b.Read(1))<<8 }
 func (b *BlendControl) WriteHalf(v uint16) { b.Write(0, uint8(v)); b.Write(1, uint8(v>>8)) }
 
 // WindowRange ⇄ WindowRange.
@@ -238,7 +238,7 @@ func (w *WindowRange) Write(address int, value uint8) {
 	}
 }
 
-func (w *WindowRange) ReadHalf() uint16  { return uint16(w.Max) | uint16(w.Min)<<8 }
+func (w *WindowRange) ReadHalf() uint16   { return uint16(w.Max) | uint16(w.Min)<<8 }
 func (w *WindowRange) WriteHalf(v uint16) { w.Write(0, uint8(v)); w.Write(1, uint8(v>>8)) }
 
 // WindowLayerSelect ⇄ WININ/WINOUT.
@@ -250,19 +250,19 @@ func (w *WindowLayerSelect) Reset() { w.Write(0, 0); w.Write(1, 0) }
 
 func (w *WindowLayerSelect) Read(address int) uint8 {
 	v := uint8(0)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		v |= uint8(w.Enable[address][i]) << i
 	}
 	return v
 }
 
 func (w *WindowLayerSelect) Write(address int, value uint8) {
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		w.Enable[address][i] = int((value >> i) & 1)
 	}
 }
 
-func (w *WindowLayerSelect) ReadHalf() uint16  { return uint16(w.Read(0)) | uint16(w.Read(1))<<8 }
+func (w *WindowLayerSelect) ReadHalf() uint16   { return uint16(w.Read(0)) | uint16(w.Read(1))<<8 }
 func (w *WindowLayerSelect) WriteHalf(v uint16) { w.Write(0, uint8(v)); w.Write(1, uint8(v>>8)) }
 
 // Mosaic ⇄ Mosaic.
@@ -271,9 +271,9 @@ type Mosaic struct {
 	OBJ MosaicAxis
 }
 type MosaicAxis struct {
-	SizeX     int
-	SizeY     int
-	CounterY  int
+	SizeX    int
+	SizeY    int
+	CounterY int
 }
 
 // Reset ⇄ Mosaic::Reset. Sets each axis size to 1 (no mosaic effect) and

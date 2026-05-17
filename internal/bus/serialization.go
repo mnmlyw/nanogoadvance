@@ -14,7 +14,7 @@ func (b *Bus) LoadState(s *savestate.SaveState) {
 	b.BIOSLatch = s.Bus.Memory.Latch.BIOS
 
 	b.Waitcnt.SRAM = s.Bus.IO.Waitcnt.SRAM
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		b.Waitcnt.WS0[i] = s.Bus.IO.Waitcnt.WS0[i]
 		b.Waitcnt.WS1[i] = s.Bus.IO.Waitcnt.WS1[i]
 		b.Waitcnt.WS2[i] = s.Bus.IO.Waitcnt.WS2[i]
@@ -63,7 +63,7 @@ func (b *Bus) CopyState(s *savestate.SaveState) {
 	s.Bus.Memory.Latch.BIOS = b.BIOSLatch
 
 	s.Bus.IO.Waitcnt.SRAM = b.Waitcnt.SRAM
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		s.Bus.IO.Waitcnt.WS0[i] = b.Waitcnt.WS0[i]
 		s.Bus.IO.Waitcnt.WS1[i] = b.Waitcnt.WS1[i]
 		s.Bus.IO.Waitcnt.WS2[i] = b.Waitcnt.WS2[i]

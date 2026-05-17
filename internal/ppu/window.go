@@ -9,7 +9,7 @@ package ppu
 // InitWindow ⇄ PPU::InitWindow.
 func (p *PPU) InitWindow() {
 	vcount := int(p.VCOUNT)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		winv := p.winv(i)
 		if vcount == winv.Min {
 			p.Window.VFlag[i] = true
@@ -29,10 +29,10 @@ func (p *PPU) DrawWindow() {
 	if cycles == 0 || p.Window.Cycle >= 1024 {
 		return
 	}
-	for i := 0; i < cycles; i++ {
+	for range cycles {
 		if (p.Window.Cycle & 3) == 0 {
 			x := p.Window.Cycle >> 2
-			for j := 0; j < 2; j++ {
+			for j := range 2 {
 				winh := p.winh(j)
 				if int(x) == winh.Min {
 					p.Window.HFlag[j] = true

@@ -12,7 +12,7 @@ func (d *DMA) LoadState(s *savestate.SaveState) {
 	d.runnableSet = s.DMA.RunnableSet
 	d.latch = s.DMA.Latch
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		src := &s.DMA.Channels[i]
 		dst := &d.channels[i]
 		control := src.Control
@@ -55,7 +55,7 @@ func (d *DMA) CopyState(s *savestate.SaveState) {
 	s.DMA.RunnableSet = d.runnableSet
 	s.DMA.Latch = d.latch
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		src := &d.channels[i]
 		dst := &s.DMA.Channels[i]
 

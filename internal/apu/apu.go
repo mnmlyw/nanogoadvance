@@ -57,7 +57,7 @@ func (s *SoundControl) Read(address int) uint8 {
 		return uint8(s.PSG.Master[SideRight]) | uint8(s.PSG.Master[SideLeft])<<4
 	case 1:
 		v := uint8(0)
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if s.PSG.Enable[SideRight][i] != 0 {
 				v |= 1 << i
 			}
@@ -105,7 +105,7 @@ func (s *SoundControl) Write(address int, value uint8) {
 		s.PSG.Master[SideRight] = int(value & 7)
 		s.PSG.Master[SideLeft] = int((value >> 4) & 7)
 	case 1:
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if value&(1<<i) != 0 {
 				s.PSG.Enable[SideRight][i] = 1
 			} else {
@@ -289,7 +289,7 @@ func (a *APU) SetDMARequester(d DMARequester) { dmaReq = d }
 
 func New(s *scheduler.Scheduler) *APU {
 	a := &APU{scheduler: s, Volume: 1.0}
-	a.PSG1 = NewQuadChannel(s, true)  // PSG1 has sweep
+	a.PSG1 = NewQuadChannel(s, true) // PSG1 has sweep
 	a.PSG2 = NewQuadChannel(s, false)
 	a.PSG3 = NewWaveChannel(s)
 	a.PSG4 = NewNoiseChannel(s, &a.BIAS)
@@ -385,7 +385,7 @@ func (a *APU) stepMixer(_ int64) {
 		}
 		mp2kR, mp2kL := a.mp2k.ReadSample()
 		var fsample [2]float32
-		for ch := 0; ch < 2; ch++ {
+		for ch := range 2 {
 			var psgSample int16
 			if psg.Enable[ch][0] != 0 {
 				psgSample += int16(a.PSG1.Sample)
@@ -401,7 +401,7 @@ func (a *APU) stepMixer(_ int64) {
 			}
 			fsample[ch] = float32(int(psgSample)*psgVolume*int(psg.Master[ch]+1)) / (32.0 * 0x200)
 			fifoSample := [2]float32{mp2kR, mp2kL}
-			for f := 0; f < 2; f++ {
+			for f := range 2 {
 				if dma[f].Enable[ch] != 0 {
 					fsample[ch] += fifoSample[f] * float32(dmaVolumeTab[dma[f].Volume]) * 0.25
 				}
@@ -436,7 +436,7 @@ func (a *APU) stepMixer(_ int64) {
 	}
 
 	var sample [2]int32 // L, R
-	for ch := 0; ch < 2; ch++ {
+	for ch := range 2 {
 		var psgSample int16
 		if psg.Enable[ch][0] != 0 {
 			psgSample += int16(a.PSG1.Sample)
@@ -451,7 +451,7 @@ func (a *APU) stepMixer(_ int64) {
 			psgSample += int16(a.PSG4.Sample)
 		}
 		sample[ch] = int32(psgSample) * int32(psgVolume) * int32(psg.Master[ch]+1) >> 5
-		for f := 0; f < 2; f++ {
+		for f := range 2 {
 			if dma[f].Enable[ch] != 0 {
 				sample[ch] += int32(a.latch[f]) * int32(dmaVolumeTab[dma[f].Volume])
 			}
@@ -546,7 +546,7 @@ func (a *APU) OnTimerOverflow(timerID, times int) {
 	if !a.SOUNDCNT.MasterEnable {
 		return
 	}
-	for fifoID := 0; fifoID < 2; fifoID++ {
+	for fifoID := range 2 {
 		if a.SOUNDCNT.DMA[fifoID].TimerID != timerID {
 			continue
 		}

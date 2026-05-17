@@ -19,7 +19,7 @@ func init() {
 
 // buildConditionLUT ⇄ TableGen::GenerateConditionTable.
 func buildConditionLUT() {
-	for flags := 0; flags < 16; flags++ {
+	for flags := range 16 {
 		n := flags&8 != 0
 		z := flags&4 != 0
 		c := flags&2 != 0
@@ -47,7 +47,7 @@ func buildConditionLUT() {
 // We reconstruct a representative instruction word from each hash and run
 // the same case analysis upstream uses.
 func buildARMLUT() {
-	for hash := 0; hash < 4096; hash++ {
+	for hash := range 4096 {
 		instruction := uint32(((hash & 0xFF0) << 16) | ((hash & 0xF) << 4))
 		sOpcodeLUT32[hash] = generateHandlerARM(instruction)
 	}
@@ -115,7 +115,7 @@ func generateHandlerARM(instruction uint32) Handler32 {
 
 // buildThumbLUT mirrors gen_thumb.hh. Hash = bits[15:6] of the 16-bit op.
 func buildThumbLUT() {
-	for hash := 0; hash < 1024; hash++ {
+	for hash := range 1024 {
 		instruction := uint16(hash << 6)
 		sOpcodeLUT16[hash] = generateHandlerThumb(instruction)
 	}

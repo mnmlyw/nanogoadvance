@@ -22,12 +22,12 @@ type ARM7TDMI struct {
 	State RegisterFile
 	Bus   *bus.Bus
 
-	pSpsr            *StatusRegister // pointer to current SPSR (or to CPSR for USR/SYS)
-	ldmUsermode      bool
-	cpuModeInvalid   bool
-	Pipe             Pipeline
-	IrqLine          bool
-	latchIrqDisable  bool
+	pSpsr           *StatusRegister // pointer to current SPSR (or to CPSR for USR/SYS)
+	ldmUsermode     bool
+	cpuModeInvalid  bool
+	Pipe            Pipeline
+	IrqLine         bool
+	latchIrqDisable bool
 }
 
 func New(b *bus.Bus) *ARM7TDMI {
@@ -98,17 +98,17 @@ func (a *ARM7TDMI) SwitchMode(newMode Mode) {
 	}
 
 	if oldBank == BANK_FIQ {
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			a.State.Bank[BANK_FIQ][i] = a.State.Reg[8+i]
 		}
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			a.State.Reg[8+i] = a.State.Bank[BANK_NONE][i]
 		}
 	} else if newBank == BANK_FIQ {
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			a.State.Bank[BANK_NONE][i] = a.State.Reg[8+i]
 		}
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			a.State.Reg[8+i] = a.State.Bank[BANK_FIQ][i]
 		}
 	}
@@ -121,7 +121,7 @@ func (a *ARM7TDMI) SwitchMode(newMode Mode) {
 		a.State.Reg[14] = a.State.Bank[newBank][6]
 		a.cpuModeInvalid = false
 	} else {
-		for i := 0; i < 7; i++ {
+		for i := range 7 {
 			a.State.Reg[8+i] = 0
 		}
 		a.State.SPSR[BANK_INVALID].V = 0

@@ -174,11 +174,14 @@ func (c *Core) LoadROMWithSave(data []byte, savePath string) {
 		// EEPROM lives on the cart bus, not at 0xE/0xF. Wire it through
 		// Bus.BackupEEPROM and compute the address mask the way upstream
 		// does in ROM::ROM (rom.hh).
-		size := backup.EEPROMAuto
-		if backupType == rom.BackupEEPROM4 {
+		var size backup.EEPROMSize
+		switch backupType {
+		case rom.BackupEEPROM4:
 			size = backup.EEPROM4K
-		} else if backupType == rom.BackupEEPROM64 {
+		case rom.BackupEEPROM64:
 			size = backup.EEPROM64K
+		default:
+			size = backup.EEPROMAuto
 		}
 		var e *backup.EEPROM
 		if savePath != "" {
@@ -412,12 +415,12 @@ func parseSoundInfo(b []uint8) hle.SoundInfo {
 	copy(si.Unknown0[:], b[8:16])
 	si.PCMSamplesPerVBlank = int32(binary.LittleEndian.Uint32(b[16:]))
 	si.PCMSampleRate = int32(binary.LittleEndian.Uint32(b[20:]))
-	for i := 0; i < 14; i++ {
+	for i := range 14 {
 		si.Unknown1[i] = binary.LittleEndian.Uint32(b[24+i*4:])
 	}
 	// Channel array starts at byte 80; each channel is 64 bytes (packed).
 	off := 80
-	for i := 0; i < hle.MP2KMaxSoundChannels; i++ {
+	for i := range hle.MP2KMaxSoundChannels {
 		c := &si.Channels[i]
 		c.Status = b[off+0]
 		c.Type = b[off+1]
@@ -436,7 +439,7 @@ func parseSoundInfo(b []uint8) hle.SoundInfo {
 		copy(c.Unknown1[:], b[off+14:off+32])
 		c.Frequency = binary.LittleEndian.Uint32(b[off+32:])
 		c.WaveAddress = binary.LittleEndian.Uint32(b[off+36:])
-		for j := 0; j < 6; j++ {
+		for j := range 6 {
 			c.Unknown2[j] = binary.LittleEndian.Uint32(b[off+40+j*4:])
 		}
 		off += 64
@@ -494,7 +497,8 @@ func timerChanOffset(addr uint32) (int, int) {
 // for an IO address, or -1 if it isn't a DMA register.
 //
 // DMA layout (12 bytes per channel, channels 0..3):
-//   0x040000B0 + 12*n .. 0x040000BB + 12*n
+//
+//	0x040000B0 + 12*n .. 0x040000BB + 12*n
 //
 // In the upstream code Read(chanID, offset) takes offsets 0..11.
 func dmaChanOffset(addr uint32) (int, int) {

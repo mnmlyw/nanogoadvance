@@ -9,12 +9,15 @@
 package tests
 
 import (
-	"os"
+	"embed"
 	"path/filepath"
 	"testing"
 
 	"github.com/mnmlyw/nanogoadvance/internal/core"
 )
+
+//go:embed testdata/*.gba
+var testROMs embed.FS
 
 // runROM loads a test ROM, runs up to maxFrames frames, and returns the
 // captured CPU state once the program is idling on `b .` (or once the frame
@@ -22,10 +25,9 @@ import (
 func runROM(t *testing.T, romName string, maxFrames int) ([16]uint32, uint32) {
 	t.Helper()
 
-	romPath := filepath.Join("testdata", romName)
-	data, err := os.ReadFile(romPath)
+	data, err := testROMs.ReadFile("testdata/" + romName)
 	if err != nil {
-		t.Fatalf("read %s: %v", romPath, err)
+		t.Fatalf("read %s: %v", romName, err)
 	}
 
 	c := core.New()
@@ -34,7 +36,7 @@ func runROM(t *testing.T, romName string, maxFrames int) ([16]uint32, uint32) {
 
 	prevPC := uint32(0xFFFFFFFF)
 	stable := 0
-	for i := 0; i < maxFrames; i++ {
+	for i := range maxFrames {
 		c.RunFrame()
 		pc := c.CPU.State.Reg[15]
 		if i > 30 && pc == prevPC {
@@ -128,7 +130,7 @@ func TestUnsafe(t *testing.T) {
 // start, loads the snapshot, and verifies the two cores agree on r0..r15
 // after another N frames.
 func TestSaveStateRoundTrip(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("testdata", "arm.gba"))
+	data, err := testROMs.ReadFile("testdata/arm.gba")
 	if err != nil {
 		t.Fatalf("read arm.gba: %v", err)
 	}
@@ -136,7 +138,7 @@ func TestSaveStateRoundTrip(t *testing.T) {
 	source := core.New()
 	source.LoadROM(data)
 	source.Reset()
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		source.RunFrame()
 	}
 
@@ -154,20 +156,25 @@ func TestSaveStateRoundTrip(t *testing.T) {
 	}
 
 	// Continue both cores for another 50 frames and assert they agree.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		source.RunFrame()
 		loaded.RunFrame()
 	}
 
-	for i := 0; i < 16; i++ {
-		if source.CPU.State.Reg[i] != loaded.CPU.State.Reg[i] {
-			t.Fatalf("r%d diverged: source=%08x loaded=%08x",
-				i, source.CPU.State.Reg[i], loaded.CPU.State.Reg[i])
-		}
+	for i := range 16 {
+		assertEq(t, source.CPU.State.Reg[i], loaded.CPU.State.Reg[i],
+			"r%d", i)
 	}
-	if source.CPU.State.CPSR.V != loaded.CPU.State.CPSR.V {
-		t.Fatalf("CPSR diverged: source=%08x loaded=%08x",
-			source.CPU.State.CPSR.V, loaded.CPU.State.CPSR.V)
+	assertEq(t, source.CPU.State.CPSR.V, loaded.CPU.State.CPSR.V, "CPSR")
+}
+
+// assertEq compares any comparable state across the save/load divide.
+// Uses the comparable type parameter so callers don't need format-string
+// gymnastics for different value types.
+func assertEq[T comparable](t *testing.T, got, want T, label string, args ...any) {
+	t.Helper()
+	if got != want {
+		t.Fatalf(label+" diverged: source=%v loaded=%v", append(args, got, want)...)
 	}
 }
 

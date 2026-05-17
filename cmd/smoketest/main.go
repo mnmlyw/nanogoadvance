@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/pprof"
 
 	"github.com/mnmlyw/nanogoadvance/internal/core"
 )
@@ -13,7 +14,18 @@ import (
 func main() {
 	biosPath := flag.String("bios", "", "BIOS image")
 	frames := flag.Int("frames", 600, "frames to run")
+	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to this path")
 	flag.Parse()
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatalf("cpuprofile: %v", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatalf("cpuprofile start: %v", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "usage: smoketest [-bios path] [-frames N] game.gba")
 		os.Exit(2)
@@ -73,8 +85,8 @@ func main() {
 		p.Palette[1], p.Palette[0], p.Palette[3], p.Palette[2])
 	// Dump BG buffer middle row + non-zero counts per BG
 	var bgNonZero [4]int
-	for x := 0; x < 240; x++ {
-		for bg := 0; bg < 4; bg++ {
+	for x := range 240 {
+		for bg := range 4 {
 			if p.BG.Buffer[x][bg] != 0 {
 				bgNonZero[bg]++
 			}

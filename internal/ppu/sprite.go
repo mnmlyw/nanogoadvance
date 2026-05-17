@@ -76,18 +76,18 @@ type Sprite struct {
 	StateRD     int
 	StateWR     int
 
-	Buffer    [2][240]SpritePixel
-	BufferRD  int
-	BufferWR  int
+	Buffer   [2][240]SpritePixel
+	BufferRD int
+	BufferWR int
 
 	LatchCycleLimit uint32
 }
 
 var spriteSize = [4][4][2]int{
-	{{8, 8}, {16, 16}, {32, 32}, {64, 64}},   // Square
-	{{16, 8}, {32, 8}, {32, 16}, {64, 32}},   // Horizontal
-	{{8, 16}, {8, 32}, {16, 32}, {32, 64}},   // Vertical
-	{{8, 8}, {8, 8}, {8, 8}, {8, 8}},          // Prohibited
+	{{8, 8}, {16, 16}, {32, 32}, {64, 64}}, // Square
+	{{16, 8}, {32, 8}, {32, 16}, {64, 32}}, // Horizontal
+	{{8, 16}, {8, 32}, {16, 32}, {32, 64}}, // Vertical
+	{{8, 8}, {8, 8}, {8, 8}, {8, 8}},       // Prohibited
 }
 
 // InitSprite ⇄ PPU::InitSprite.
@@ -128,7 +128,7 @@ func (p *PPU) DrawSprite() {
 
 func (p *PPU) drawSpriteImpl(cycles int) {
 	cycleLimit := p.Sprite.LatchCycleLimit
-	for i := 0; i < cycles; i++ {
+	for range cycles {
 		cycle := p.Sprite.Cycle
 		if p.DISPCNT.Enable[EnableOBJ] != 0 && (cycle&1) == 0 {
 			p.drawSpriteFetchVRAM(cycle)
@@ -153,41 +153,72 @@ func (p *PPU) drawSpriteImpl(cycles int) {
 	}
 }
 
-func (p *PPU) fetchOAM_u32(cycle uint32, addr uint32) uint32 {
+// memWidth ⇄ T : uint16|uint32 for OAM fetches, uint8|uint16 for VRAM_OBJ.
+// Constraint widened to include all three so a single set of helpers covers
+// both call sites; each instantiation specialises to its width.
+type memWidth interface{ ~uint8 | ~uint16 | ~uint32 }
+
+// loadLE reads sizeof(T) little-endian bytes from b — replaces the
+// per-width binary.LittleEndian.UintN sequences in fetch helpers.
+func loadLE[T memWidth](b []byte) T {
+	var z T
+	switch any(z).(type) {
+	case uint8:
+		return T(b[0])
+	case uint16:
+		return T(uint16(b[0]) | uint16(b[1])<<8)
+	case uint32:
+		return T(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24)
+	}
+	panic("loadLE: unsupported width")
+}
+
+// alignMask returns the OAM address mask for the given fetch width.
+func alignMaskOAM[T memWidth]() uint32 {
+	var z T
+	switch any(z).(type) {
+	case uint16:
+		return 0x3FE
+	case uint32:
+		return 0x3FC
+	}
+	return 0x3FF
+}
+
+func fetchOAM[T uint16 | uint32](p *PPU, cycle uint32, addr uint32) T {
 	p.Sprite.TimestampOAMAccess = p.Sprite.TimestampInit + int64(cycle)
-	addr &= 0x3FC
-	return uint32(p.OAM[addr]) | uint32(p.OAM[addr+1])<<8 |
-		uint32(p.OAM[addr+2])<<16 | uint32(p.OAM[addr+3])<<24
+	return loadLE[T](p.OAM[addr&alignMaskOAM[T]():])
+}
+
+func fetchVRAM_OBJ[T uint8 | uint16](p *PPU, cycle uint32, addr uint32) T {
+	addr &= 0x1FFFF
+	if addr >= 0x18000 {
+		addr &= 0x17FFF
+	}
+	if addr >= p.spriteVRAMBoundary() {
+		p.Sprite.TimestampVRAMAccess = p.Sprite.TimestampInit + int64(cycle)
+		return loadLE[T](p.VRAM[addr:])
+	}
+	var zero T
+	return zero
+}
+
+// Legacy non-generic wrappers — call sites still use these for readability;
+// each is now a one-liner that delegates to the generic above.
+func (p *PPU) fetchOAM_u32(cycle uint32, addr uint32) uint32 {
+	return fetchOAM[uint32](p, cycle, addr)
 }
 
 func (p *PPU) fetchOAM_u16(cycle uint32, addr uint32) uint16 {
-	p.Sprite.TimestampOAMAccess = p.Sprite.TimestampInit + int64(cycle)
-	addr &= 0x3FE
-	return uint16(p.OAM[addr]) | uint16(p.OAM[addr+1])<<8
+	return fetchOAM[uint16](p, cycle, addr)
 }
 
 func (p *PPU) fetchVRAM_OBJ_u8(cycle uint32, addr uint32) uint8 {
-	addr &= 0x1FFFF
-	if addr >= 0x18000 {
-		addr &= 0x17FFF
-	}
-	if addr >= p.spriteVRAMBoundary() {
-		p.Sprite.TimestampVRAMAccess = p.Sprite.TimestampInit + int64(cycle)
-		return p.VRAM[addr]
-	}
-	return 0
+	return fetchVRAM_OBJ[uint8](p, cycle, addr)
 }
 
 func (p *PPU) fetchVRAM_OBJ_u16(cycle uint32, addr uint32) uint16 {
-	addr &= 0x1FFFF
-	if addr >= 0x18000 {
-		addr &= 0x17FFF
-	}
-	if addr >= p.spriteVRAMBoundary() {
-		p.Sprite.TimestampVRAMAccess = p.Sprite.TimestampInit + int64(cycle)
-		return uint16(p.VRAM[addr]) | uint16(p.VRAM[addr+1])<<8
-	}
-	return 0
+	return fetchVRAM_OBJ[uint16](p, cycle, addr)
 }
 
 func (p *PPU) submitOAM() {
@@ -272,7 +303,7 @@ func (p *PPU) drawSpriteFetchOAM(cycle uint32) {
 						fetch.InitialLocalX = -halfWidth
 						fetch.InitialLocalY = localY - halfHeight
 						fetch.PendingWait = halfWidth*2 - 1
-						fetch.MatrixAddress = ((attr01 >> 25) & 31) * 32 + 6
+						fetch.MatrixAddress = ((attr01>>25)&31)*32 + 6
 					}
 					active = true
 					if x < 0 {
@@ -456,7 +487,7 @@ func (p *PPU) drawSpriteFetchVRAM(cycle uint32) {
 			palette = ds.Palette << 4
 		}
 
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			colorIndex := colorIndices[i]
 			if colorIndex > 0 {
 				colorIndex |= palette

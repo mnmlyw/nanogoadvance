@@ -103,9 +103,9 @@ func (p pq) Less(i, j int) bool {
 	}
 	return p[i].id < p[j].id
 }
-func (p pq) Swap(i, j int)  { p[i], p[j] = p[j], p[i]; p[i].index = i; p[j].index = j }
-func (p *pq) Push(x any)    { e := x.(*event); e.index = len(*p); *p = append(*p, e) }
-func (p *pq) Pop() any      { old := *p; n := len(old); e := old[n-1]; *p = old[:n-1]; return e }
+func (p pq) Swap(i, j int) { p[i], p[j] = p[j], p[i]; p[i].index = i; p[j].index = j }
+func (p *pq) Push(x any)   { e := x.(*event); e.index = len(*p); *p = append(*p, e) }
+func (p *pq) Pop() any     { old := *p; n := len(old); e := old[n-1]; *p = old[:n-1]; return e }
 
 type Scheduler struct {
 	now       int64
@@ -118,7 +118,6 @@ func New() *Scheduler {
 	s := &Scheduler{nextID: 1}
 	// Panic on unhandled class — upstream does the same.
 	for i := range s.callbacks {
-		i := i
 		s.callbacks[i] = func(uint64) { panic("scheduler: unhandled event class") }
 	}
 	return s

@@ -112,7 +112,7 @@ func (n *NoiseChannel) CopyState(s *savestate.NoiseChannelState) {
 // The serialised form stores entries in pop order starting at index 0;
 // rd_ptr is set to 0 and wr_ptr to count % length on restore.
 func (f *WordFIFO) LoadState(s *savestate.FIFOState) {
-	for i := 0; i < fifoLen; i++ {
+	for i := range fifoLen {
 		f.data[i] = s.Data[i]
 	}
 	f.rdPtr = 0
@@ -121,7 +121,7 @@ func (f *WordFIFO) LoadState(s *savestate.FIFOState) {
 }
 
 func (f *WordFIFO) CopyState(s *savestate.FIFOState) {
-	for i := 0; i < fifoLen; i++ {
+	for i := range fifoLen {
 		s.Data[i] = f.data[(f.rdPtr+i)%fifoLen]
 	}
 	s.Count = uint8(f.count)
@@ -136,7 +136,7 @@ func (a *APU) LoadState(s *savestate.SaveState) {
 	a.PSG3.LoadState(&s.APU.IO.Wave)
 	a.PSG4.LoadState(&s.APU.IO.Noise)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		a.FIFO[i].LoadState(&s.APU.FIFO[i])
 		a.fifoPipe[i].Word = s.APU.FIFO[i].Pipe.Word
 		a.fifoPipe[i].Size = int(s.APU.FIFO[i].Pipe.Size)
@@ -153,7 +153,7 @@ func (a *APU) CopyState(s *savestate.SaveState) {
 	a.PSG3.CopyState(&s.APU.IO.Wave)
 	a.PSG4.CopyState(&s.APU.IO.Noise)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		a.FIFO[i].CopyState(&s.APU.FIFO[i])
 		s.APU.FIFO[i].Pipe.Word = a.fifoPipe[i].Word
 		s.APU.FIFO[i].Pipe.Size = uint8(a.fifoPipe[i].Size)

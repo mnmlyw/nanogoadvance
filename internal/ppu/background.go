@@ -95,7 +95,7 @@ func (p *PPU) InitBackground() {
 		p.BG.Text[i].Fetches = 0
 	}
 	firstScanline := p.VCOUNT == 0
-	for id := 0; id < 2; id++ {
+	for id := range 2 {
 		bgx, bgy := p.bgxRef(id), p.bgyRef(id)
 		if bgx.Written || firstScanline {
 			bgx.Current = bgx.Initial
@@ -122,7 +122,7 @@ func (p *PPU) DrawBackground() {
 	// `latched_dispcnt_and_current_dispcnt`.
 	latchAnd := p.DISPCNTLatch[0] & p.DISPCNT.Hword
 	bgEnabled := func(id int) bool { return latchAnd&(256<<uint(id)) != 0 }
-	for i := 0; i < cycles; i++ {
+	for range cycles {
 		cycle := uint32(1) + p.BG.Cycle
 		// Text-mode BGs (mode 0/1).
 		if mode <= 1 {
@@ -317,7 +317,7 @@ func (p *PPU) renderMode2BG(id, cycle uint) {
 			y &= mask
 			p.BG.Affine[id].OutOfBounds = false
 		} else {
-			p.BG.Affine[id].OutOfBounds = ((x|y)&-size) != 0
+			p.BG.Affine[id].OutOfBounds = ((x | y) & -size) != 0
 		}
 		address := uint16(bgcnt.MapBlock)<<11 + uint16((y>>3)<<(4+logSize)) + uint16(x>>3)
 		tile := p.fetchVRAM_BG_u8(uint32(cycle), uint32(address))

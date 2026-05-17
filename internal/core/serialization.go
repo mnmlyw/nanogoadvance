@@ -102,10 +102,7 @@ func (c *Core) CopyState(s *savestate.SaveState) {
 	// silently dropped (not serialisable); only class-tagged events make
 	// it into the save. Cap at 64 to match the upstream layout.
 	pending := c.Sched.PendingClassEvents()
-	count := uint8(len(pending))
-	if count > 64 {
-		count = 64
-	}
+	count := min(uint8(len(pending)), 64)
 	for i := uint8(0); i < count; i++ {
 		s.Scheduler.Events[i] = savestate.SchedEvent{
 			Key:        pending[i].Key,

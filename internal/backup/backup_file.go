@@ -97,7 +97,7 @@ func (f *BackupFile) MemorySet(index, length int, value uint8) {
 	if index+length > f.saveSize {
 		panic(fmt.Sprintf("BackupFile: out-of-bounds memset [%d..%d) (size %d)", index, index+length, f.saveSize))
 	}
-	for i := 0; i < length; i++ {
+	for i := range length {
 		f.memory[index+i] = value
 	}
 	if f.AutoUpdate {

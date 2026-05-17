@@ -38,7 +38,7 @@ type Merge struct {
 	TimestampPRAMAccess int64
 	Cycle               uint32
 
-	MosaicX    [2]uint32
+	MosaicX     [2]uint32
 	ForcedBlank bool
 
 	Layers [2]int
@@ -88,19 +88,10 @@ func Blend(colorA, colorB uint16, eva, evb int) uint16 {
 	if evb > 16 {
 		evb = 16
 	}
-	r := (rA*eva + rB*evb + 8) >> 4
-	if r > 31 {
-		r = 31
-	}
-	g := (gA*eva + gB*evb + 8) >> 4
-	if g > 63 {
-		g = 63
-	}
+	r := min((rA*eva+rB*evb+8)>>4, 31)
+	g := min((gA*eva+gB*evb+8)>>4, 63)
 	g >>= 1
-	b := (bA*eva + bB*evb + 8) >> 4
-	if b > 31 {
-		b = 31
-	}
+	b := min((bA*eva+bB*evb+8)>>4, 31)
 	return uint16(b<<10 | g<<5 | r)
 }
 
@@ -112,9 +103,9 @@ func Brighten(color uint16, evy int) uint16 {
 	r := int(color & 31)
 	g := int(((color >> 4) & 62) | (color >> 15))
 	b := int((color >> 10) & 31)
-	r += ((31 - r) * evy + 8) >> 4
-	g += ((63 - g) * evy + 8) >> 4
-	b += ((31 - b) * evy + 8) >> 4
+	r += ((31-r)*evy + 8) >> 4
+	g += ((63-g)*evy + 8) >> 4
+	b += ((31-b)*evy + 8) >> 4
 	g >>= 1
 	return uint16(b<<10 | g<<5 | r)
 }
@@ -197,7 +188,7 @@ func (p *PPU) drawMergeImpl(cycles int) {
 
 	var winLayerEnable [6]int
 
-	for i := 0; i < cycles; i++ {
+	for range cycles {
 		cycle := int(p.Merge.Cycle) - 46
 		if cycle < 0 {
 			p.Merge.Cycle++
@@ -228,7 +219,7 @@ func (p *PPU) drawMergeImpl(cycles int) {
 				p.Merge.Colors[0] = 0
 				p.Merge.Colors[1] = 0
 				bgIdx := 0
-				for j := 0; j < 2; j++ {
+				for j := range 2 {
 					for bgIdx < bgCount {
 						bgID := bgList[bgIdx]
 						bgIdx++

@@ -20,38 +20,38 @@ const (
 
 // Sound channel status bits ⇄ MP2K::SoundChannelStatus.
 const (
-	channelStart       = 0x80
-	channelStop        = 0x40
-	channelLoop        = 0x10
-	channelEcho        = 0x04
-	channelEnvMask     = 0x03
-	channelEnvAttack   = 0x03
-	channelEnvDecay    = 0x02
-	channelEnvSustain  = 0x01
-	channelEnvRelease  = 0x00
-	channelOn          = channelStart | channelStop | channelEcho | channelEnvMask
+	channelStart      = 0x80
+	channelStop       = 0x40
+	channelLoop       = 0x10
+	channelEcho       = 0x04
+	channelEnvMask    = 0x03
+	channelEnvAttack  = 0x03
+	channelEnvDecay   = 0x02
+	channelEnvSustain = 0x01
+	channelEnvRelease = 0x00
+	channelOn         = channelStart | channelStop | channelEcho | channelEnvMask
 )
 
 // SoundChannel ⇄ MP2K::SoundChannel (76 bytes).
 type SoundChannel struct {
-	Status            uint8
-	Type              uint8
-	VolumeR           uint8
-	VolumeL           uint8
-	EnvelopeAttack    uint8
-	EnvelopeDecay     uint8
-	EnvelopeSustain   uint8
-	EnvelopeRelease   uint8
-	Unknown0          uint8
-	EnvelopeVolume    uint8
-	EnvelopeVolumeR   uint8
-	EnvelopeVolumeL   uint8
-	EchoVolume        uint8
-	EchoLength        uint8
-	Unknown1          [18]uint8
-	Frequency         uint32
-	WaveAddress       uint32
-	Unknown2          [6]uint32
+	Status          uint8
+	Type            uint8
+	VolumeR         uint8
+	VolumeL         uint8
+	EnvelopeAttack  uint8
+	EnvelopeDecay   uint8
+	EnvelopeSustain uint8
+	EnvelopeRelease uint8
+	Unknown0        uint8
+	EnvelopeVolume  uint8
+	EnvelopeVolumeR uint8
+	EnvelopeVolumeL uint8
+	EchoVolume      uint8
+	EchoLength      uint8
+	Unknown1        [18]uint8
+	Frequency       uint32
+	WaveAddress     uint32
+	Unknown2        [6]uint32
 }
 
 // Packed sizeof(SoundChannel) = 14 single-byte fields + 18-byte unknown1
@@ -65,16 +65,16 @@ const soundInfoTotalSize = soundInfoHeaderSize + MP2KMaxSoundChannels*soundChann
 
 // SoundInfo ⇄ MP2K::SoundInfo.
 type SoundInfo struct {
-	Magic                uint32
-	PCMDMACounter        uint8
-	Reverb               uint8
-	MaxChannels          uint8
-	MasterVolume         uint8
-	Unknown0             [8]uint8
-	PCMSamplesPerVBlank  int32
-	PCMSampleRate        int32
-	Unknown1             [14]uint32
-	Channels             [MP2KMaxSoundChannels]SoundChannel
+	Magic               uint32
+	PCMDMACounter       uint8
+	Reverb              uint8
+	MaxChannels         uint8
+	MasterVolume        uint8
+	Unknown0            [8]uint8
+	PCMSamplesPerVBlank int32
+	PCMSampleRate       int32
+	Unknown1            [14]uint32
+	Channels            [MP2KMaxSoundChannels]SoundChannel
 }
 
 // WaveInfo ⇄ MP2K::Sampler::WaveInfo (16 bytes).
@@ -87,13 +87,13 @@ type WaveInfo struct {
 }
 
 type sampler struct {
-	compressed         bool
-	shouldFetchSample  bool
-	currentPosition    uint32
-	resamplePhase      float32
-	sampleHistory      [4]float32
-	waveInfo           WaveInfo
-	waveData           []uint8
+	compressed        bool
+	shouldFetchSample bool
+	currentPosition   uint32
+	resamplePhase     float32
+	sampleHistory     [4]float32
+	waveInfo          WaveInfo
+	waveData          []uint8
 }
 
 type envelope struct {
@@ -110,16 +110,16 @@ type BusHostAddress interface {
 
 // MP2K ⇄ struct MP2K.
 type MP2K struct {
-	engaged          bool
-	UseCubicFilter   bool
-	ForceReverb      bool
-	bus              BusHostAddress
-	soundInfo        SoundInfo
-	buffer           []float32
-	currentFrame     int
-	bufferReadIndex  int
-	samplers         [MP2KMaxSoundChannels]sampler
-	envelopes        [MP2KMaxSoundChannels]envelope
+	engaged         bool
+	UseCubicFilter  bool
+	ForceReverb     bool
+	bus             BusHostAddress
+	soundInfo       SoundInfo
+	buffer          []float32
+	currentFrame    int
+	bufferReadIndex int
+	samplers        [MP2KMaxSoundChannels]sampler
+	envelopes       [MP2KMaxSoundChannels]envelope
 }
 
 // New constructs an MP2K engine bound to a bus.
@@ -161,10 +161,7 @@ func (m *MP2K) SoundMainRAM(info SoundInfo) {
 		m.engaged = true
 	}
 
-	maxChannels := int(info.MaxChannels)
-	if maxChannels > MP2KMaxSoundChannels {
-		maxChannels = MP2KMaxSoundChannels
-	}
+	maxChannels := min(int(info.MaxChannels), MP2KMaxSoundChannels)
 	m.soundInfo = info
 
 	for i := 0; i < maxChannels; i++ {
@@ -285,7 +282,7 @@ func (m *MP2K) SoundMainRAM(info SoundInfo) {
 		hqVolL := hqMaster * u8ToFloat(channel.VolumeL)
 
 		m.envelopes[i].volume = hqEnv[0]
-		for j := 0; j < 2; j++ {
+		for j := range 2 {
 			m.envelopes[i].volumeR[j] = hqEnv[j] * hqVolR
 			m.envelopes[i].volumeL[j] = hqEnv[j] * hqVolL
 		}
@@ -309,10 +306,7 @@ func (m *MP2K) RenderFrame() {
 			reverbStrength = 48
 		}
 	}
-	maxChannels := int(m.soundInfo.MaxChannels)
-	if maxChannels > MP2KMaxSoundChannels {
-		maxChannels = MP2KMaxSoundChannels
-	}
+	maxChannels := min(int(m.soundInfo.MaxChannels), MP2KMaxSoundChannels)
 	dest := m.buffer[m.currentFrame*MP2KSamplesPerFrame*2:]
 	dest = dest[:MP2KSamplesPerFrame*2]
 
@@ -366,7 +360,7 @@ func (m *MP2K) RenderFrame() {
 			continue
 		}
 
-		for j := 0; j < MP2KSamplesPerFrame; j++ {
+		for j := range MP2KSamplesPerFrame {
 			t := float32(j) / float32(MP2KSamplesPerFrame)
 			volumeL := env.volumeL[0]*(1-t) + env.volumeL[1]*t
 			volumeR := env.volumeR[0]*(1-t) + env.volumeR[1]*t
@@ -376,7 +370,7 @@ func (m *MP2K) RenderFrame() {
 				if compressed {
 					blockOffset := s.currentPosition & 63
 					blockAddress := (s.currentPosition >> 6) * 33
-					address := blockAddress + (blockOffset>>1) + 1
+					address := blockAddress + (blockOffset >> 1) + 1
 					if int(address) >= len(waveData) {
 						// Sample buffer underflow — disable the channel
 						// rather than crashing.
@@ -472,7 +466,7 @@ func (m *MP2K) renderReverb(dest []float32, strength uint8) {
 		earlyL := earlyBuffer[l] * earlyCoef
 		earlyR := earlyBuffer[r] * earlyCoef
 		var lateL, lateR float32
-		for j := 0; j < 3; j++ {
+		for j := range 3 {
 			sL := lateBuffers[j][l]
 			sR := lateBuffers[j][r]
 			lateL += sL*lateCoefs[j][0] + sR*lateCoefs[j][1]

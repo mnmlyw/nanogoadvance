@@ -49,7 +49,7 @@ func (a *ARM7TDMI) MultiplyCarryLo(multiplicand, multiplier, accum uint32) uint3
 	sum := carry + accum
 	shift := 29
 	for {
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			nextBooth := uint32(int32(multiplier<<uint32(shift)) >> uint32(shift))
 			factor := nextBooth - booth
 			booth = nextBooth
@@ -174,10 +174,7 @@ func (a *ARM7TDMI) DoShift(opcode int, operand *uint32, amount uint8, carry *uin
 }
 
 func (a *ARM7TDMI) LSL(operand *uint32, amount uint8, carry *uint32) {
-	adj := int(amount)
-	if adj > 33 {
-		adj = 33
-	}
+	adj := min(int(amount), 33)
 	result := uint32(uint64(*operand) << adj)
 	if adj != 0 {
 		*carry = uint32(uint64(*operand)<<(adj-1)) >> 31
@@ -189,10 +186,7 @@ func (a *ARM7TDMI) LSR(operand *uint32, amount uint8, carry *uint32, immediate b
 	if immediate && amount == 0 {
 		amount = 32
 	}
-	adj := int(amount)
-	if adj > 33 {
-		adj = 33
-	}
+	adj := min(int(amount), 33)
 	result := uint32(uint64(*operand) >> adj)
 	if adj != 0 {
 		*carry = uint32((uint64(*operand) >> (adj - 1)) & 1)
@@ -204,10 +198,7 @@ func (a *ARM7TDMI) ASR(operand *uint32, amount uint8, carry *uint32, immediate b
 	if immediate && amount == 0 {
 		amount = 32
 	}
-	adj := int(amount)
-	if adj > 33 {
-		adj = 33
-	}
+	adj := min(int(amount), 33)
 	result := uint32(int64(int32(*operand)) >> adj)
 	if adj != 0 {
 		*carry = uint32((int64(int32(*operand)) >> (adj - 1)) & 1)
