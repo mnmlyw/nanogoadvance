@@ -243,10 +243,7 @@ func (p *PPU) Reset() {
 	p.Sprite.Cycle = p.Sprite.LatchCycleLimit
 	p.Sprite.TimestampVRAMAccess = -1
 	p.Sprite.TimestampOAMAccess = -1
-	// Match upstream ppu.cc:94-95 — initial sprite double-buffer assignment
-	// is buffer[0] for read, buffer[1] for write. Without this, both stay 0
-	// after Go's zero-value init and the OBJWIN/sprite pipeline produces
-	// nothing (visible in BIOS animation: WINOUT.Enable[1] never reached).
+	// Sprite double-buffer init — upstream ppu.cc:94-95.
 	p.Sprite.BufferRD = 0
 	p.Sprite.BufferWR = 1
 	p.Merge.TimestampLastSync = now

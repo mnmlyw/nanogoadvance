@@ -179,19 +179,26 @@ func (p *PPU) advanceAffineXY(mode int, latchAnd uint16) {
 	// "Do not update internal X/Y unless the latched BG enable bit is
 	// set" — upstream comment. Gate on the same latched mask the
 	// rendering uses.
+	//
+	// CRITICAL: advance bgx[id]._current (per-scanline working copy),
+	// NOT BG.Affine[id].X (per-pixel working copy reset each scanline).
+	// Updating Affine[id] is wasted because InitBackground re-copies
+	// bgx.Current into Affine[id].X at every line start. ⇄ upstream
+	// background.cc:144-149: `bgx[id]._current += bgpb[id]`.
 	advance := func(id int) {
 		bgID := 2 + id
 		if latchAnd&(256<<uint(bgID)) == 0 {
 			return
 		}
+		bgx, bgy := p.bgxRef(id), p.bgyRef(id)
 		if p.BGCNT[bgID].MosaicEnable != 0 {
 			if p.MOSAIC.BG.CounterY == 0 {
-				p.BG.Affine[id].X += int32(p.MOSAIC.BG.SizeY) * int32(p.BGPB[id])
-				p.BG.Affine[id].Y += int32(p.MOSAIC.BG.SizeY) * int32(p.BGPD[id])
+				bgx.Current += int32(p.MOSAIC.BG.SizeY) * int32(p.BGPB[id])
+				bgy.Current += int32(p.MOSAIC.BG.SizeY) * int32(p.BGPD[id])
 			}
 		} else {
-			p.BG.Affine[id].X += int32(p.BGPB[id])
-			p.BG.Affine[id].Y += int32(p.BGPD[id])
+			bgx.Current += int32(p.BGPB[id])
+			bgy.Current += int32(p.BGPD[id])
 		}
 	}
 	if mode >= 1 && mode <= 5 {
