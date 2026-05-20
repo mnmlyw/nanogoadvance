@@ -64,6 +64,7 @@ func TestParseSpatialFilter(t *testing.T) {
 		"linear":  SpatialLinear,
 		"sharp":   SpatialSharp,
 		"lcd1x":   SpatialLCD1x,
+		"xbrz":    SpatialXBRZ,
 	}
 	for in, want := range cases {
 		got, err := ParseSpatialFilter(in)
@@ -73,9 +74,6 @@ func TestParseSpatialFilter(t *testing.T) {
 	}
 	if _, err := ParseSpatialFilter("bogus"); err == nil {
 		t.Errorf("ParseSpatialFilter(bogus): want error")
-	}
-	if _, err := ParseSpatialFilter("xbrz"); err == nil {
-		t.Errorf("ParseSpatialFilter(xbrz): want 'not implemented' error")
 	}
 }
 
@@ -202,6 +200,8 @@ func TestApplyPipeline(t *testing.T) {
 		{Spatial: SpatialLCD1x},
 		{Color: ColorAGB, LCDGhosting: true, Spatial: SpatialSharp},
 		{Color: ColorHigan, LCDGhosting: true, Spatial: SpatialLCD1x},
+		{Spatial: SpatialXBRZ},
+		{Color: ColorAGB, Spatial: SpatialXBRZ},
 	}
 	src := ebiten.NewImage(width, height)
 	fillImage(src, color.RGBA{R: 100, G: 150, B: 200, A: 255})
@@ -216,9 +216,139 @@ func TestApplyPipeline(t *testing.T) {
 	}
 }
 
-// TestXBRZRejected — xbrz is explicitly unsupported for now.
-func TestXBRZRejected(t *testing.T) {
-	if _, err := ParseSpatialFilter("xbrz"); err == nil {
-		t.Errorf("ParseSpatialFilter(xbrz) should return an error until ported")
+// TestXBRZAccepted — xbrz parses and the pipeline constructs cleanly.
+func TestXBRZAccepted(t *testing.T) {
+	got, err := ParseSpatialFilter("xbrz")
+	if err != nil || got != SpatialXBRZ {
+		t.Fatalf("ParseSpatialFilter(xbrz) = %v, %v; want %v, nil", got, err, SpatialXBRZ)
 	}
+	if _, err := newFilterPipeline(VideoFilters{Spatial: SpatialXBRZ}); err != nil {
+		t.Fatalf("newFilterPipeline(xbrz): %v", err)
+	}
+}
+
+// TestXBRZ0InfoMap — run only pass 0 and confirm the info map is
+// non-zero on at least some pixels for a diagonal-staircase input.
+// If pass 0 produces all zeros, pass 1 can't blend — every pixel
+// returns res=E and xBRZ degrades to nearest scaling.
+func TestXBRZ0InfoMap(t *testing.T) {
+	p, err := newFilterPipeline(VideoFilters{Spatial: SpatialXBRZ})
+	if err != nil {
+		t.Fatalf("new pipeline: %v", err)
+	}
+	src := ebiten.NewImage(width, height)
+	// Diagonal staircase — pixels where x < y are white, else black.
+	pix := make([]byte, width*height*4)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			i := (y*width + x) * 4
+			pix[i+3] = 255
+			if x < y {
+				pix[i+0], pix[i+1], pix[i+2] = 255, 255, 255
+			}
+		}
+	}
+	src.WritePixels(pix)
+
+	// Run pass 0 only.
+	p.xbrzInfo.Clear()
+	op := &ebiten.DrawRectShaderOptions{}
+	op.Images[0] = src
+	p.xbrzInfo.DrawRectShader(width, height, p.xbrz0Shader, op)
+
+	nonZero := 0
+	for y := 1; y < height-1; y++ {
+		for x := 1; x < width-1; x++ {
+			c := pixelAt(p.xbrzInfo, x, y)
+			if c.R != 0 || c.G != 0 || c.B != 0 || c.A != 0 {
+				nonZero++
+			}
+		}
+	}
+	if nonZero == 0 {
+		t.Fatalf("xbrz0 info map is all zero — pass 0 isn't encoding any blend decisions")
+	}
+	t.Logf("xbrz0 info map: %d/%d interior pixels non-zero (good)", nonZero, (width-2)*(height-2))
+	// Sample one likely-edge pixel: just below the diagonal.
+	t.Logf("info[100, 99] = %+v (just below diagonal — likely non-zero)", pixelAt(p.xbrzInfo, 100, 99))
+	t.Logf("info[100, 101] = %+v (just above diagonal — likely non-zero)", pixelAt(p.xbrzInfo, 100, 101))
+}
+
+// TestXBRZRendersSomething — apply xBRZ to a synthetic source with a
+// known diagonal edge and assert (a) the output isn't all-black (the
+// classic "shader sample coords wrong" symptom), (b) some pixels have
+// intermediate colors that nearest-scaling couldn't produce (= xBRZ is
+// actually smoothing the diagonal, not just acting as nearest).
+func TestXBRZRendersSomething(t *testing.T) {
+	p, err := newFilterPipeline(VideoFilters{Spatial: SpatialXBRZ})
+	if err != nil {
+		t.Fatalf("new pipeline: %v", err)
+	}
+	src := ebiten.NewImage(width, height)
+	// White triangle on black — clear diagonal edge that xBRZ should
+	// smooth. Pixels where x < y are white, others black.
+	pix := make([]byte, width*height*4)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			i := (y*width + x) * 4
+			pix[i+3] = 255
+			if x < y {
+				pix[i+0], pix[i+1], pix[i+2] = 255, 255, 255
+			}
+		}
+	}
+	src.WritePixels(pix)
+
+	dst := ebiten.NewImage(width*xBRZScale, height*xBRZScale)
+	p.apply(src, dst)
+
+	// Diagnostic: dump pixels around the triangle edge. native pixel
+	// (100, 100) is BLACK (x==y, fails x<y), so 4x output spans rows
+	// 400-403 cols 400-403. Bottom-left corner W of that block should
+	// blend toward neighbor (99, 100) which is WHITE.
+	t.Logf("output[400, 403] = %+v (bottom-left corner of black block)", pixelAt(dst, 400, 403))
+	t.Logf("output[401, 403] = %+v (in bottom-left region)", pixelAt(dst, 401, 403))
+	t.Logf("output[400, 402] = %+v (left edge mid)", pixelAt(dst, 400, 402))
+	t.Logf("output[403, 400] = %+v (top-right of black block)", pixelAt(dst, 403, 400))
+	t.Logf("output[400, 400] (on edge) = %+v", pixelAt(dst, 400, 400))
+
+	// (a) Sample the bottom-left corner of every native-pixel-aligned
+	// 4x4 block right at the triangle edge (where x < y kicks in). With
+	// nearest scaling these would all be pure black or white. xBRZ
+	// should blend them toward the white neighbor, producing white or
+	// gray.
+	bright := 0
+	for y := 50; y < 150; y++ {
+		// Bottom-left output pixel of native block (y-1, y) (border).
+		x := y - 1
+		ox := x*xBRZScale + 0
+		oy := y*xBRZScale + xBRZScale - 1
+		c := pixelAt(dst, ox, oy)
+		if c.R != 0 || c.G != 0 || c.B != 0 {
+			bright++
+		}
+	}
+	if bright < 50 {
+		t.Errorf("xBRZ corner-blend not firing: only %d/100 sampled border pixels brightened (expect >=50)", bright)
+	}
+
+	// (b) Look for intermediate gray values (not pure 0 or 255). With
+	// pure nearest scaling there'd be only 0 or 255 per channel. xBRZ
+	// smoothing produces antialiased gray pixels along the diagonal.
+	intermediate := 0
+	for y := 50; y < 150; y++ {
+		x := y - 1
+		for dy := 0; dy < xBRZScale; dy++ {
+			for dx := 0; dx < xBRZScale; dx++ {
+				c := pixelAt(dst, x*xBRZScale+dx, y*xBRZScale+dy)
+				if c.R > 30 && c.R < 220 {
+					intermediate++
+					if intermediate >= 10 {
+						return // enough evidence — pass
+					}
+				}
+			}
+		}
+	}
+	t.Errorf("xBRZ produced no intermediate gray pixels along the diagonal; got %d (expected ≥10) — suggests xBRZ is acting as pure nearest scaling", intermediate)
 }

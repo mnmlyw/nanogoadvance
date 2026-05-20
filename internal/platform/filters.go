@@ -60,10 +60,13 @@ func ParseSpatialFilter(s string) (SpatialFilter, error) {
 	case "lcd1x":
 		return SpatialLCD1x, nil
 	case "xbrz":
-		return SpatialNearest, fmt.Errorf("xbrz not yet implemented in Kage; use sharp or linear")
+		return SpatialXBRZ, nil
 	}
-	return SpatialNearest, fmt.Errorf("unknown spatial filter %q (want nearest|linear|sharp|lcd1x)", s)
+	return SpatialNearest, fmt.Errorf("unknown spatial filter %q (want nearest|linear|sharp|lcd1x|xbrz)", s)
 }
+
+// xBRZScale must stay in lockstep with the `scale` const in shaderXBRZ1.
+const xBRZScale = 4
 
 // filterPipeline holds the compiled shaders + intermediate render
 // targets. Lazily allocates intermediates only for the active
@@ -75,11 +78,18 @@ type filterPipeline struct {
 	colorShader *ebiten.Shader // color_agb / color_higan
 	ghostShader *ebiten.Shader
 	lcd1xShader *ebiten.Shader
+	xbrz0Shader *ebiten.Shader // edge analysis → info map
+	xbrz1Shader *ebiten.Shader // info map → 4x upscale
 
 	// Native-resolution intermediates (240x160).
 	colorOut *ebiten.Image // color → input for next stage
 	ghostOut *ebiten.Image // ghosting → input for spatial stage
 	history  *ebiten.Image // previous frame, used by ghosting
+
+	// xBRZ intermediates.
+	xbrzInfo  *ebiten.Image // 240x160, pass 0 output (info map)
+	xbrzOut   *ebiten.Image // 4x scaled info map (input to pass 1)
+	xbrzFinal *ebiten.Image // 4x final, pass 1 output
 
 	// scaledOut is allocated lazily to dst's pixel size for the spatial
 	// shader pass — Ebiten's DrawRectShader requires bound images to
@@ -117,8 +127,14 @@ func newFilterPipeline(cfg VideoFilters) (*filterPipeline, error) {
 			return nil, fmt.Errorf("lcd1x shader: %w", err)
 		}
 	case SpatialXBRZ:
-		// Should be unreachable — ParseSpatialFilter rejects "xbrz".
-		return nil, fmt.Errorf("xbrz spatial filter not yet implemented")
+		if p.xbrz0Shader, err = compile(shaderXBRZ0); err != nil {
+			return nil, fmt.Errorf("xbrz0 shader: %w", err)
+		}
+		if p.xbrz1Shader, err = compile(shaderXBRZ1); err != nil {
+			return nil, fmt.Errorf("xbrz1 shader: %w", err)
+		}
+		p.xbrzInfo = ebiten.NewImage(width, height)
+		p.xbrzOut = ebiten.NewImage(width*xBRZScale, height*xBRZScale)
 	}
 
 	// Allocate intermediate images only where needed.
@@ -208,7 +224,58 @@ func (p *filterPipeline) apply(srcTex *ebiten.Image, dst *ebiten.Image) {
 		op2.Images[0] = pre
 		op2.Uniforms = map[string]any{"OutputSize": []float32{float32(outW), float32(outH)}}
 		dst.DrawRectShader(outW, outH, p.lcd1xShader, op2)
+
+	case SpatialXBRZ:
+		// Pass 0: at native 240x160, generate the info map.
+		p.xbrzInfo.Clear()
+		op0 := &ebiten.DrawRectShaderOptions{}
+		op0.Images[0] = src
+		p.xbrzInfo.DrawRectShader(width, height, p.xbrz0Shader, op0)
+		// Pass 1: at 4x output (960x640). Bind both the original source
+		// AND the info map. Ebiten requires bound images at the same
+		// size as each other and matching the dst rect — the original
+		// source is 240x160 but xbrzInfo is also 240x160 (good). To
+		// satisfy the dst-rect constraint we'd need src to be 4x too,
+		// so we pre-scale src (nearest) onto a 4x intermediate.
+		srcScaled := p.scaledIntermediate(width*xBRZScale, height*xBRZScale)
+		srcScaled.Clear()
+		opSrc := &ebiten.DrawImageOptions{}
+		opSrc.GeoM.Scale(float64(xBRZScale), float64(xBRZScale))
+		srcScaled.DrawImage(src, opSrc)
+		// Info map also needs to be 4x to satisfy same-size rule. Scale
+		// nearest so each native info-pixel becomes a 4x4 block — pass
+		// 1 then samples one info-tap per output pixel, all 4x4 of which
+		// share the same info as upstream's pass-1 lookup intent.
+		infoScaled := p.xbrzOut // reuse — overwritten below by xbrz1
+		infoScaled.Clear()
+		opInfo := &ebiten.DrawImageOptions{}
+		opInfo.GeoM.Scale(float64(xBRZScale), float64(xBRZScale))
+		infoScaled.DrawImage(p.xbrzInfo, opInfo)
+		// Allocate a separate target since xbrzOut is now infoScaled.
+		// Lazy-allocate to avoid the lifecycle bug.
+		finalOut := p.xbrzFinalIntermediate()
+		finalOut.Clear()
+		op1 := &ebiten.DrawRectShaderOptions{}
+		op1.Images[0] = srcScaled
+		op1.Images[1] = infoScaled
+		op1.Uniforms = map[string]any{"OutputSize": []float32{float32(width * xBRZScale), float32(height * xBRZScale)}}
+		finalOut.DrawRectShader(width*xBRZScale, height*xBRZScale, p.xbrz1Shader, op1)
+		// Fit to window via linear filter.
+		opFit := &ebiten.DrawImageOptions{}
+		opFit.GeoM.Scale(float64(outW)/float64(width*xBRZScale), float64(outH)/float64(height*xBRZScale))
+		opFit.Filter = ebiten.FilterLinear
+		dst.DrawImage(finalOut, opFit)
 	}
+}
+
+// xbrzFinalIntermediate — second 4x image (xbrzOut is consumed as a
+// scaled info map during pass 1; the final output target is allocated
+// separately to keep the pipeline obvious).
+func (p *filterPipeline) xbrzFinalIntermediate() *ebiten.Image {
+	if p.xbrzFinal == nil {
+		p.xbrzFinal = ebiten.NewImage(width*xBRZScale, height*xBRZScale)
+	}
+	return p.xbrzFinal
 }
 
 // scaledIntermediate returns an ebiten.Image of (w, h) pixels for use
