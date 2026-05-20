@@ -270,6 +270,8 @@ type APU struct {
 	Volume float32
 
 	sampleMu sync.Mutex
+
+	dmaReq DMARequester
 }
 
 // SetMP2K wires the HLE MP2K engine. When the engine is engaged the
@@ -282,10 +284,8 @@ type DMARequester interface {
 	RequestFIFO(idx int)
 }
 
-var dmaReq DMARequester
-
 // SetDMARequester wires the DMA controller (called by core during init).
-func (a *APU) SetDMARequester(d DMARequester) { dmaReq = d }
+func (a *APU) SetDMARequester(d DMARequester) { a.dmaReq = d }
 
 func New(s *scheduler.Scheduler) *APU {
 	a := &APU{scheduler: s, Volume: 1.0}
@@ -553,8 +553,8 @@ func (a *APU) OnTimerOverflow(timerID, times int) {
 		fifo := &a.FIFO[fifoID]
 		pipe := &a.fifoPipe[fifoID]
 
-		if fifo.Count() <= 3 && dmaReq != nil {
-			dmaReq.RequestFIFO(fifoID)
+		if fifo.Count() <= 3 && a.dmaReq != nil {
+			a.dmaReq.RequestFIFO(fifoID)
 		}
 		if pipe.Size == 0 && fifo.Count() > 0 {
 			pipe.Word = fifo.ReadWord()

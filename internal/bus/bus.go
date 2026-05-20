@@ -457,9 +457,30 @@ func (b *Bus) ReadByte(addr uint32, access Access) uint8 {
 			seq = 0
 		}
 		b.Prefetch(addr, access&AccessCode != 0, b.wait16[seq][page])
-	} else {
-		b.stepAt(page, addr, access, 8)
+		b.LastAccess = access
+		// Upstream bus.cc:144-146: `ReadROM16(address, sequential) >> shift`
+		// — byte cart reads go through the latched ReadROM16, NOT a direct
+		// byte fetch. Latch update happens for both byte and half reads.
+		off := addr & 0x01FFFFFE
+		if b.GPIO != nil && off >= 0xC4 && off <= 0xC8 && b.GPIO.IsReadable() {
+			return uint8(b.GPIO.Read(off) >> ((addr & 1) << 3))
+		}
+		if b.BackupEEPROM != nil && (off&b.EEPROMMask) == b.EEPROMMask {
+			return uint8(b.BackupEEPROM.Read(0) >> ((addr & 1) << 3))
+		}
+		if seq == 0 {
+			b.ROMAddressLatch = off & b.ROMMask
+		}
+		var data uint16
+		if int(b.ROMAddressLatch)+1 < len(b.ROM) {
+			data = binary.LittleEndian.Uint16(b.ROM[b.ROMAddressLatch:])
+		} else {
+			data = uint16(b.ROMAddressLatch >> 1)
+		}
+		b.ROMAddressLatch = (b.ROMAddressLatch + 2) & b.ROMMask
+		return uint8(data >> ((addr & 1) << 3))
 	}
+	b.stepAt(page, addr, access, 8)
 	b.LastAccess = access
 	return b.readByteAt(addr)
 }
@@ -700,13 +721,22 @@ func (b *Bus) WriteByte(addr uint32, v uint8, access Access) {
 	b.drainDMAOnAccess(access)
 	page := (addr >> 24) & 0xF
 	b.stepAt(page, addr, access, 8)
-	b.LastAccess = access
+	// LastAccess assignment deferred to after the write switch — matches
+	// upstream bus.cc:280 ordering, so IO-write-triggered DMA reentry sees
+	// the OLD LastAccess and the "DMA→non-DMA forces non-seq" rule fires.
+	defer func() { b.LastAccess = access }()
 	switch page {
 	case 0x2:
 		b.EWRAM[addr&0x3FFFF] = v
 	case 0x3:
 		b.IWRAM[addr&0x7FFF] = v
 	case 0x4:
+		// PPU IO writes (DISPCNT..BLDY) must sync the PPU state machines
+		// to `now` before the register write commits, so mid-scanline
+		// register changes fire against fresh PPU state. ⇄ bus.cc:209-211.
+		if addr <= 0x04000054 && b.PPUSyncHook != nil {
+			b.PPUSyncHook()
+		}
 		for _, d := range b.devices {
 			if d.IOWrite8(addr, v) {
 				return
@@ -756,7 +786,7 @@ func (b *Bus) WriteHalf(addr uint32, v uint16, access Access) {
 	b.drainDMAOnAccess(access)
 	page := (addr >> 24) & 0xF
 	b.stepAt(page, addr, access, 16)
-	b.LastAccess = access
+	defer func() { b.LastAccess = access }()
 	raw := addr // preserve for SRAM (upstream skips alignment there)
 	addr &= ^uint32(1)
 	switch page {
@@ -765,6 +795,9 @@ func (b *Bus) WriteHalf(addr uint32, v uint16, access Access) {
 	case 0x3:
 		binary.LittleEndian.PutUint16(b.IWRAM[addr&0x7FFF:], v)
 	case 0x4:
+		if addr <= 0x04000054 && b.PPUSyncHook != nil {
+			b.PPUSyncHook()
+		}
 		for _, d := range b.devices {
 			if d.IOWrite16(addr, v) {
 				return
@@ -809,7 +842,7 @@ func (b *Bus) WriteWord(addr uint32, v uint32, access Access) {
 	b.drainDMAOnAccess(access)
 	page := (addr >> 24) & 0xF
 	b.stepAt(page, addr, access, 32)
-	b.LastAccess = access
+	defer func() { b.LastAccess = access }()
 	raw := addr // preserve for SRAM (no alignment there)
 	addr &= ^uint32(3)
 	switch page {
@@ -818,6 +851,9 @@ func (b *Bus) WriteWord(addr uint32, v uint32, access Access) {
 	case 0x3:
 		binary.LittleEndian.PutUint32(b.IWRAM[addr&0x7FFF:], v)
 	case 0x4:
+		if addr <= 0x04000054 && b.PPUSyncHook != nil {
+			b.PPUSyncHook()
+		}
 		for _, d := range b.devices {
 			if d.IOWrite32(addr, v) {
 				return

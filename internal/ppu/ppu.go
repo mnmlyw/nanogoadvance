@@ -314,12 +314,14 @@ func (p *PPU) UpdateVerticalCounterFlag() {
 
 func (p *PPU) onHBlankStart(late int64) {
 	p.DISPSTAT.HBlankFlag = 1
-	// HBlank IRQ fires 1 cycle after the flag is set (upstream).
-	if p.DISPSTAT.HBlankIRQEnable != 0 {
-		p.sched.AddClass(1, scheduler.EventClassPPUHBlankIRQ, 0, 0)
-	}
+	// Order ⇄ upstream BeginHBlankVDraw (ppu.cc:138-146):
+	// (1) DMA request, then (2) HBlank IRQ schedule, then (3) HDraw schedule.
+	// Order affects scheduler-queue insertion of equal-timestamp events.
 	if p.dma != nil && p.VCOUNT < ScreenHeight {
 		p.dma.Request(dma.OccasionHBlank)
+	}
+	if p.DISPSTAT.HBlankIRQEnable != 0 {
+		p.sched.AddClass(1, scheduler.EventClassPPUHBlankIRQ, 0, 0)
 	}
 	var cls scheduler.EventClass
 	if p.VCOUNT < ScreenHeight {
@@ -331,15 +333,32 @@ func (p *PPU) onHBlankStart(late int64) {
 }
 
 func (p *PPU) onLineEnd(late int64) {
-	// Flush draw passes with the full scanline cycle budget — merge needs
-	// ~1004 cycles to reach the rightmost column, but HBlank only fires at
-	// cycle 960. Upstream's BeginHDrawVDraw flushes here too.
+	// Flush draw passes for the scanline. Order must be
+	// Background → Window → Merge (upstream ppu.cc:107-109) — Merge reads
+	// Window.Buffer per pixel, so Window must finish before Merge runs.
 	if p.VCOUNT < ScreenHeight {
 		p.DrawBackground()
+		p.DrawWindow()
 		p.DrawMerge()
+	} else {
+		// VBlank: upstream BeginHDrawVBlank (ppu.cc:153) flushes only
+		// DrawWindow — BG/Merge already terminated at line 159.
+		p.DrawWindow()
 	}
-	p.DrawWindow()
 
+	// Schedule order mirrors upstream BeginHDrawVDraw (ppu.cc:103-135) for
+	// the HDraw transitions (pre-VCOUNT 0..159) and BeginHDrawVBlank
+	// (ppu.cc:149-187) for VBlank transitions. Upstream schedules
+	// update_vcount_flag and latch_dispcnt BEFORE vcount++, so they go in
+	// the heap before the +1 vblank_irq / +1232 hblank events.
+	preVCOUNT := p.VCOUNT
+	hdrawTransition := preVCOUNT < ScreenHeight
+	p.sched.AddClass(1, scheduler.EventClassPPUUpdateVCountFlag, 0, 0)
+	if hdrawTransition || preVCOUNT >= 224 {
+		// BeginHDrawVDraw unconditional latch (pre 0..159) +
+		// BeginHDrawVBlank pre>=224 latch (pre 224..227).
+		p.sched.AddClass(40, scheduler.EventClassPPULatchDISPCNT, 0, 0)
+	}
 	p.DISPSTAT.HBlankFlag = 0
 	p.VCOUNT++
 	if p.VCOUNT == linesPerFrame {
@@ -349,15 +368,19 @@ func (p *PPU) onLineEnd(late int64) {
 		// and a consumer can pick up Output[Frame^1] as the latest frame.
 		p.Frame ^= 1
 	}
+	p.UpdateVideoTransferDMA()
 	switch p.VCOUNT {
 	case ScreenHeight:
-		p.DISPSTAT.VBlankFlag = 1
-		// VBlank IRQ fires 1 cycle after the flag is set (upstream).
-		if p.DISPSTAT.VBlankIRQEnable != 0 {
-			p.sched.AddClass(1, scheduler.EventClassPPUVBlankIRQ, 0, 0)
-		}
+		// Upstream order in BeginHDrawVDraw (ppu.cc:119-126):
+		// hblank_vblank(+1007) → RequestVblankDMA → vblank_flag=1 →
+		// vblank_irq(+1) if enabled. We schedule the next HBlank below; do
+		// the DMA + IRQ here in upstream's order.
 		if p.dma != nil {
 			p.dma.Request(dma.OccasionVBlank)
+		}
+		p.DISPSTAT.VBlankFlag = 1
+		if p.DISPSTAT.VBlankIRQEnable != 0 {
+			p.sched.AddClass(1, scheduler.EventClassPPUVBlankIRQ, 0, 0)
 		}
 	case 162:
 		// Re-latch DMA3 video transfer state once per frame at
@@ -373,11 +396,6 @@ func (p *PPU) onLineEnd(late int64) {
 		// post-increments to 227, dispstat.vblank_flag = 0).
 		p.DISPSTAT.VBlankFlag = 0
 	}
-	// UpdateVerticalCounterFlag (and its IRQ) fires 1 cycle after the
-	// VCOUNT increment — matches upstream's `scheduler.Add(1,
-	// PPU_update_vcount_flag)` pattern in BeginHDrawVDraw/VBlank.
-	p.sched.AddClass(1, scheduler.EventClassPPUUpdateVCountFlag, 0, 0)
-	p.UpdateVideoTransferDMA()
 	// Latch new window V flags and background state at the start of the
 	// next scanline — matches BeginHDrawVDraw in upstream.
 	if p.VCOUNT < ScreenHeight {
@@ -385,13 +403,6 @@ func (p *PPU) onLineEnd(late int64) {
 		p.InitMerge()
 	}
 	p.InitWindow()
-	// Schedule the DISPCNT latch 40 cycles into the scanline. Upstream
-	// only schedules this for vcount < 160 (in BeginHDrawVDraw,
-	// ppu.cc:112) and vcount >= 224 (in BeginHDrawVBlank, ppu.cc:168-
-	// 170) — early/mid-VBlank (160..223) skips the latch.
-	if p.VCOUNT < ScreenHeight || p.VCOUNT >= 224 {
-		p.sched.AddClass(40, scheduler.EventClassPPULatchDISPCNT, 0, 0)
-	}
 	var nextCls scheduler.EventClass
 	if p.VCOUNT < ScreenHeight {
 		nextCls = scheduler.EventClassPPUHBlankVDraw

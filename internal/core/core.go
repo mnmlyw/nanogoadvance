@@ -350,7 +350,14 @@ func (c *Core) Run(cycles int64) {
 					break
 				}
 			}
-			c.Bus.Step(c.Sched.RemainingCycleCount())
+			// Clamp to the remaining run target so we don't overshoot when
+			// no real events are pending (only the EndOfQueue sentinel,
+			// whose timestamp is ~2^62).
+			remaining := c.Sched.RemainingCycleCount()
+			if budget := target - c.Sched.Now(); remaining > budget {
+				remaining = budget
+			}
+			c.Bus.Step(remaining)
 		}
 		if c.IRQ.ShouldUnhaltCPU() {
 			c.Bus.Step(1)
@@ -546,10 +553,14 @@ func (s *stubDevice) IORead8(addr uint32) (uint8, bool) {
 		return s.bus.Postflg, true
 	case 0x04000301:
 		return 0, true
-	case 0x04FFF600: // MGBA_LOG_ENABLE low
+	case 0x04FFF780: // MGBA_LOG_ENABLE low
 		return uint8(s.mgbaLogEnable), true
-	case 0x04FFF601:
+	case 0x04FFF781:
 		return uint8(s.mgbaLogEnable >> 8), true
+	}
+	// mGBA debug string buffer 0x04FFF600..0x04FFF6FF — readable.
+	if addr >= 0x04FFF600 && addr < 0x04FFF700 {
+		return s.mgbaLogMsg[addr&0xFF], true
 	}
 	if addr >= 0x04000000 && addr < 0x04000400 {
 		return 0, true
@@ -583,8 +594,11 @@ func (s *stubDevice) IORead16(addr uint32) (uint16, bool) {
 		return uint16(s.bus.ReadWaitcnt0()) | uint16(s.bus.ReadWaitcnt1())<<8, true
 	case 0x04000208:
 		return s.irq.ReadHalf(4), true
-	case 0x04FFF600:
+	case 0x04FFF780:
 		return s.mgbaLogEnable, true
+	}
+	if addr >= 0x04FFF600 && addr < 0x04FFF700 {
+		return uint16(s.mgbaLogMsg[addr&0xFF]) | uint16(s.mgbaLogMsg[(addr+1)&0xFF])<<8, true
 	}
 	if addr >= 0x04000000 && addr < 0x04000400 {
 		return 0, true

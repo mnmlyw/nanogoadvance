@@ -20,8 +20,10 @@ type stateful interface {
 }
 
 // LoadState ⇄ Core::LoadState — restores every subsystem from a snapshot.
+// Silently no-ops on magic / version mismatch; LoadStateFromFile reports
+// these as errors before calling in.
 func (c *Core) LoadState(s *savestate.SaveState) {
-	if s.Magic != savestate.MagicNumber {
+	if s.Magic != savestate.MagicNumber || s.Version != savestate.CurrentVersion {
 		return
 	}
 	c.Sched.Reset()
@@ -140,6 +142,12 @@ func (c *Core) LoadStateFromFile(path string) error {
 	var s savestate.SaveState
 	if err := binary.Read(f, binary.LittleEndian, &s); err != nil && err != io.EOF {
 		return fmt.Errorf("LoadStateFromFile: %w", err)
+	}
+	if s.Magic != savestate.MagicNumber {
+		return fmt.Errorf("LoadStateFromFile: bad magic %#x (want %#x)", s.Magic, savestate.MagicNumber)
+	}
+	if s.Version != savestate.CurrentVersion {
+		return fmt.Errorf("LoadStateFromFile: version %d does not match current %d", s.Version, savestate.CurrentVersion)
 	}
 	c.LoadState(&s)
 	return nil
