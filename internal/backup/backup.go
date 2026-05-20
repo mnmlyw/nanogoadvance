@@ -131,9 +131,16 @@ func (f *FLASH) resetWithError() error {
 		f.file = NewInMemory(bytes)
 		return nil
 	}
-	bf, err := OpenOrCreate(f.savePath, []int{bytes}, &bytes)
+	// Accept either FLASH variant on disk so a 128 KiB save isn't wiped to
+	// 64 KiB when the game-DB hint or detection magic disagrees.
+	bf, err := OpenOrCreate(f.savePath, flashSaveSize[:], &bytes)
 	if err != nil {
 		return err
+	}
+	if bytes == flashSaveSize[Flash128K] {
+		f.size = Flash128K
+	} else {
+		f.size = Flash64K
 	}
 	f.file = bf
 	return nil

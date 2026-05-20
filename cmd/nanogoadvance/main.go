@@ -13,9 +13,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/mnmlyw/nanogoadvance/internal/core"
 	"github.com/mnmlyw/nanogoadvance/internal/platform"
@@ -67,6 +70,25 @@ func main() {
 			log.Fatalf("load-state %s: %v", *loadState, err)
 		}
 	}
+
+	// Flush .sav files on clean exit AND on Ctrl-C / SIGTERM. Ebiten owns
+	// the main loop, so a signal handler in a goroutine has to call
+	// os.Exit itself once the flush is done.
+	flushSaves := func() {
+		for _, b := range []any{c.Bus.BackupSRAM, c.Bus.BackupEEPROM} {
+			if c, ok := b.(io.Closer); ok {
+				_ = c.Close()
+			}
+		}
+	}
+	defer flushSaves()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		flushSaves()
+		os.Exit(0)
+	}()
 
 	if err := platform.New(c).Run(); err != nil {
 		log.Fatalf("frontend: %v", err)

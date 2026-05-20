@@ -122,13 +122,27 @@ func (f *BackupFile) Update(index, length int) {
 func (f *BackupFile) Buffer() []uint8 { return f.memory }
 func (f *BackupFile) Size() int       { return f.saveSize }
 
+// Sync forces any buffered writes through the OS page cache to disk.
+// Cheap to call; intended for shutdown / signal paths where durability
+// matters more than throughput.
+func (f *BackupFile) Sync() error {
+	if f.stream == nil {
+		return nil
+	}
+	return f.stream.Sync()
+}
+
 // Close flushes and closes the backing file. The upstream destructor
 // implicitly handles this via std::fstream's destructor.
 func (f *BackupFile) Close() error {
 	if f.stream == nil {
 		return nil
 	}
-	err := f.stream.Close()
+	syncErr := f.stream.Sync()
+	closeErr := f.stream.Close()
 	f.stream = nil
-	return err
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
 }
