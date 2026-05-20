@@ -142,6 +142,14 @@ func (a *APU) LoadState(s *savestate.SaveState) {
 		a.fifoPipe[i].Size = int(s.APU.FIFO[i].Pipe.Size)
 	}
 	a.ResolutionOld = int(s.APU.ResolutionOld)
+
+	// MP2K mixer is reset rather than (de)serialised — matches upstream
+	// apu.cc:28-30. The cart's audio engine re-engages MP2K on its next
+	// SoundMainRAM hook fire, so the brief mute is bounded by one music
+	// frame instead of being silent until the next hard Reset.
+	if resettable, ok := a.mp2k.(interface{ Reset() }); ok && resettable != nil {
+		resettable.Reset()
+	}
 }
 
 func (a *APU) CopyState(s *savestate.SaveState) {
