@@ -29,6 +29,9 @@ func main() {
 	savePath := flag.String("save", "", "save file path (defaults to ROM with .sav extension)")
 	mp2kHLE := flag.Bool("mp2k-hle", false, "enable MP2K audio HLE (recommended for most retail games)")
 	loadState := flag.String("load-state", "", "load a save state from this path at startup")
+	colorFlag := flag.String("color", "none", "color correction: none|agb|higan")
+	lcdGhost := flag.Bool("lcd-ghosting", false, "enable LCD ghosting (50/50 interframe blend)")
+	spatialFlag := flag.String("filter", "nearest", "spatial filter: nearest|linear|sharp|lcd1x")
 	flag.Parse()
 	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "usage: nanogoadvance [-bios path] [-save path] game.gba")
@@ -90,7 +93,23 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if err := platform.New(c).Run(); err != nil {
+	front := platform.New(c)
+	colorF, err := platform.ParseColorFilter(*colorFlag)
+	if err != nil {
+		log.Fatalf("color: %v", err)
+	}
+	spatialF, err := platform.ParseSpatialFilter(*spatialFlag)
+	if err != nil {
+		log.Fatalf("filter: %v", err)
+	}
+	if err := front.SetFilters(platform.VideoFilters{
+		Color:       colorF,
+		LCDGhosting: *lcdGhost,
+		Spatial:     spatialF,
+	}); err != nil {
+		log.Fatalf("filters: %v", err)
+	}
+	if err := front.Run(); err != nil {
 		log.Fatalf("frontend: %v", err)
 	}
 }

@@ -22,9 +22,10 @@ const (
 )
 
 type Frontend struct {
-	core *core.Core
-	tex  *ebiten.Image
-	pix  []byte
+	core    *core.Core
+	tex     *ebiten.Image
+	pix     []byte
+	filters *filterPipeline // nil = no filters, plain scaled blit
 }
 
 // hostBuffer holds resampled stereo samples at the host rate, ready to be
@@ -118,6 +119,22 @@ func (r *audioReader) Read(p []byte) (int, error) {
 	return r.f.core.APU.ReadSamples(p), nil
 }
 
+// SetFilters configures the video filter pipeline. Call before Run().
+// Passing the zero-value VideoFilters disables all filters (plain
+// scaled blit, equivalent to no SetFilters call at all).
+func (f *Frontend) SetFilters(cfg VideoFilters) error {
+	if cfg.Color == ColorNone && !cfg.LCDGhosting && cfg.Spatial == SpatialNearest {
+		f.filters = nil
+		return nil
+	}
+	p, err := newFilterPipeline(cfg)
+	if err != nil {
+		return err
+	}
+	f.filters = p
+	return nil
+}
+
 func New(c *core.Core) *Frontend {
 	// Allocate the host-rate ring (~1 second of stereo float at 44.1kHz).
 	// Doubles as the apu.StereoSink and dsp.WriteStream target.
@@ -203,6 +220,10 @@ func (f *Frontend) Update() error {
 }
 
 func (f *Frontend) Draw(screen *ebiten.Image) {
+	if f.filters != nil {
+		f.filters.apply(f.tex, screen)
+		return
+	}
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(scale, scale)
 	screen.DrawImage(f.tex, op)
