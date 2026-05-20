@@ -2,7 +2,29 @@
 
 Snapshot of where the port stands. Update as things change.
 
-## Current issue — Pokemon Emerald scanline flicker
+## Current issue — Pokemon Emerald scanline flicker (resolved as upstream-faithful)
+
+**Verdict:** the 18 frames still flagged by `tests/pokemon_flicker_test.go`
+are **byte-identical** to upstream NanoBoyAdvance's output for the same
+input. Cross-verified via `tools/nba-headless/` (a CMake harness that
+links against `upstream/NanoBoyAdvance/` and drives the same scripted
+input). The X-Y-X heuristic in the test is detecting genuine
+single-frame pixel oscillations in the Birch intro — they exist in
+upstream NBA too, so they're not port regressions.
+
+**What got us from 211 → 18:** the scheduler `Now()` semantics inside
+`Step` (`internal/scheduler/scheduler.go:170-200`). Upstream
+`Scheduler::Step` sets `timestamp_now = event->timestamp` BEFORE each
+callback fires; the port previously bumped `s.now` to the run target up
+front, so callbacks read post-bump time. Fixing this dropped the count
+91%.
+
+The test still fires red because it doesn't know about the 18 baseline
+frames. Future work: either add a known-upstream-flicker allowlist, or
+replace the X-Y-X heuristic with a direct PNG-baseline comparison
+against `nba-headless` output.
+
+## Historical issue — Pokemon Emerald scanline flicker (original)
 
 Real-game regression caught by `tests/pokemon_flicker_test.go`:
 
@@ -89,11 +111,3 @@ reimplementation. Concretely:
    this scaffold (PNG ring-buffer dump, scanline hashing) rather than
    inventing a new one.
 
-## Files currently dirty
-
-- `internal/ppu/background.go` — affine-counter fix described above
-  (uncommitted).
-- `internal/ppu/ppu.go` — comment cleanup on the sprite double-buffer
-  init (uncommitted, no behavior change).
-- `tests/pokemon_flicker_test.go` — new headless flicker reproducer
-  (untracked).
