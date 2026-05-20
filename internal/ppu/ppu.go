@@ -359,6 +359,12 @@ func (p *PPU) onLineEnd(late int64) {
 		// BeginHDrawVBlank pre>=224 latch (pre 224..227).
 		p.sched.AddClass(40, scheduler.EventClassPPULatchDISPCNT, 0, 0)
 	}
+	if preVCOUNT == 162 && p.dma != nil {
+		// Re-latch DMA3 video transfer state once per frame. Upstream
+		// (ppu.cc:159-166) checks pre-increment vcount == 162; checking
+		// post-increment would latch one scanline early.
+		p.DMA3VideoTransferRunning = p.dma.HasVideoTransferDMA()
+	}
 	p.DISPSTAT.HBlankFlag = 0
 	p.VCOUNT++
 	if p.VCOUNT == linesPerFrame {
@@ -381,14 +387,6 @@ func (p *PPU) onLineEnd(late int64) {
 		p.DISPSTAT.VBlankFlag = 1
 		if p.DISPSTAT.VBlankIRQEnable != 0 {
 			p.sched.AddClass(1, scheduler.EventClassPPUVBlankIRQ, 0, 0)
-		}
-	case 162:
-		// Re-latch DMA3 video transfer state once per frame at
-		// vcount==162 (matches upstream ppu.cc:159-166). Set
-		// unconditionally — clears flag if no DMA is pending,
-		// engages it if HasVideoTransferDMA returns true.
-		if p.dma != nil {
-			p.DMA3VideoTransferRunning = p.dma.HasVideoTransferDMA()
 		}
 	case 227:
 		// Hardware quirk: VBlankFlag clears one line before VBlank

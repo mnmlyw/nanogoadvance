@@ -290,7 +290,7 @@ func (d *DMA) runChannel() {
 				} else {
 					value = uint16(ch.latch.busValue)
 				}
-				d.bus.Idle()
+				d.bus.Step(1)
 			}
 			d.bus.WriteHalf(dstAddr, value, accessDst)
 		} else {
@@ -298,7 +298,7 @@ func (d *DMA) runChannel() {
 				ch.latch.busValue = d.bus.ReadWord(srcAddr, accessSrc)
 				d.latch = ch.latch.busValue
 			} else {
-				d.bus.Idle()
+				d.bus.Step(1)
 			}
 			d.bus.WriteWord(dstAddr, ch.latch.busValue, accessDst)
 		}

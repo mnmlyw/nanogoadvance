@@ -314,6 +314,7 @@ func (b *Bus) Reset() {
 	b.prefetch = prefetchBuffer{}
 	b.LastAccess = 0
 	b.ROMAddressLatch = 0
+	b.ParallelInternalCPUCycleLimit = 0
 	b.UpdateWaitStateTable()
 }
 
@@ -411,7 +412,10 @@ func (b *Bus) readBIOS(addr uint32) uint32 {
 // rejects any address beyond the actual mapped region — including
 // the EWRAM/IWRAM mirror windows that upstream also rejects.
 func (b *Bus) GetHostAddress(addr uint32, size int) []uint8 {
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		return nil
+	}
 	switch page {
 	case 0x0:
 		off := addr & 0x00FFFFFF
@@ -447,7 +451,14 @@ func (b *Bus) GetHostAddress(addr uint32, size int) []uint8 {
 
 func (b *Bus) ReadByte(addr uint32, access Access) uint8 {
 	b.drainDMAOnAccess(access)
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		// Unmapped high address space — upstream bus.cc default arm:
+		// Step(1); return ReadOpenBus(address).
+		b.Step(1)
+		b.LastAccess = access
+		return uint8(b.ReadOpenBus(addr))
+	}
 	if page >= 0x8 && page <= 0xD {
 		seq := 0
 		if access&AccessSequential != 0 {
@@ -487,7 +498,12 @@ func (b *Bus) ReadByte(addr uint32, access Access) uint8 {
 
 func (b *Bus) ReadHalf(addr uint32, access Access) uint16 {
 	b.drainDMAOnAccess(access)
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		b.Step(1)
+		b.LastAccess = access
+		return uint16(b.ReadOpenBus(addr))
+	}
 	if page >= 0x8 && page <= 0xD {
 		// ROM region — route through Prefetch so the gamepak prefetch
 		// buffer is updated. Matches bus.cc case 0x08..0x0D, including
@@ -574,7 +590,12 @@ func (b *Bus) ReadHalf(addr uint32, access Access) uint16 {
 
 func (b *Bus) ReadWord(addr uint32, access Access) uint32 {
 	b.drainDMAOnAccess(access)
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		b.Step(1)
+		b.LastAccess = access
+		return b.ReadOpenBus(addr)
+	}
 	if page >= 0x8 && page <= 0xD {
 		seq := 0
 		if access&AccessSequential != 0 {
@@ -658,8 +679,11 @@ func (b *Bus) ReadWord(addr uint32, access Access) uint32 {
 	return b.ReadOpenBus(addr)
 }
 
+// readByteAt handles byte reads for the non-cart memory regions. Cart
+// reads (0x8..0xD) and unmapped high pages (>0xF) are handled directly
+// in ReadByte before delegating here.
 func (b *Bus) readByteAt(addr uint32) uint8 {
-	switch (addr >> 24) & 0xF {
+	switch addr >> 24 {
 	case 0x0:
 		return uint8(b.readBIOS(addr))
 	case 0x2:
@@ -690,20 +714,6 @@ func (b *Bus) readByteAt(addr uint32) uint8 {
 		return b.VRAM[off]
 	case 0x7:
 		return b.OAM[addr&0x3FF]
-	case 0x8, 0x9, 0xA, 0xB, 0xC, 0xD:
-		off := addr & 0x01FFFFFF
-		// Upstream Bus::Read<u8> on cart ROM goes through ReadROM16 then
-		// shifts — so the GPIO range is reachable from byte reads too.
-		if b.GPIO != nil && (off&^1) >= 0xC4 && (off&^1) <= 0xC8 && b.GPIO.IsReadable() {
-			return b.GPIO.Read(off&^1) >> ((off & 1) << 3)
-		}
-		if int(off) < len(b.ROM) {
-			return b.ROM[off]
-		}
-		// Open-bus: halfword at (off & ~1) is (off >> 1); byte = HW>>(off&1*8).
-		hw := (off &^ 1) >> 1
-		shift := (off & 1) << 3
-		return uint8(hw >> shift)
 	case 0xE, 0xF:
 		if b.BackupSRAM != nil {
 			return b.BackupSRAM.Read(addr)
@@ -719,7 +729,12 @@ func (b *Bus) readByteAt(addr uint32) uint8 {
 
 func (b *Bus) WriteByte(addr uint32, v uint8, access Access) {
 	b.drainDMAOnAccess(access)
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		b.Step(1)
+		b.LastAccess = access
+		return
+	}
 	b.stepAt(page, addr, access, 8)
 	// LastAccess assignment deferred to after the write switch — matches
 	// upstream bus.cc:280 ordering, so IO-write-triggered DMA reentry sees
@@ -749,14 +764,13 @@ func (b *Bus) WriteByte(addr uint32, v uint8, access Access) {
 		b.Palette[off] = v
 		b.Palette[off+1] = v
 	case 0x6:
+		// ⇄ upstream WriteVRAM<u8> (ppu.hh:83-117) via bus.cc:223 — the
+		// BG/OBJ split happens BEFORE the 32K mirror fold. OBJ-region
+		// byte writes are dropped on real hardware; only the BG region
+		// gets the byte-replicated halfword. The boundary is
+		// mode-dependent (0x14000 in bitmap modes, 0x10000 otherwise)
+		// per PPU::GetSpriteVRAMBoundary.
 		off := addr & 0x1FFFF
-		if off >= 0x18000 {
-			off &= 0x17FFF
-		}
-		// BG-region byte writes duplicate (`value * 0x0101`); OBJ-region
-		// byte writes drop. The boundary is mode-dependent (0x14000 in
-		// bitmap modes, 0x10000 otherwise) per upstream
-		// PPU::GetSpriteVRAMBoundary.
 		boundary := uint32(0x10000)
 		if b.PPUSpriteVRAMBoundaryHook != nil {
 			boundary = b.PPUSpriteVRAMBoundaryHook()
@@ -765,6 +779,8 @@ func (b *Bus) WriteByte(addr uint32, v uint8, access Access) {
 			b.VRAM[off&^1] = v
 			b.VRAM[(off&^1)+1] = v
 		}
+		// Anything >= boundary (incl. the 0x18000-0x1FFFF mirror) is
+		// OBJ-region for byte writes — drop, per upstream.
 	case 0x7:
 		// 8-bit OAM writes are dropped on hardware.
 	case 0x8, 0x9, 0xA, 0xB, 0xC, 0xD:
@@ -784,7 +800,12 @@ func (b *Bus) WriteByte(addr uint32, v uint8, access Access) {
 
 func (b *Bus) WriteHalf(addr uint32, v uint16, access Access) {
 	b.drainDMAOnAccess(access)
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		b.Step(1)
+		b.LastAccess = access
+		return
+	}
 	b.stepAt(page, addr, access, 16)
 	defer func() { b.LastAccess = access }()
 	raw := addr // preserve for SRAM (upstream skips alignment there)
@@ -840,7 +861,12 @@ func (b *Bus) WriteHalf(addr uint32, v uint16, access Access) {
 
 func (b *Bus) WriteWord(addr uint32, v uint32, access Access) {
 	b.drainDMAOnAccess(access)
-	page := (addr >> 24) & 0xF
+	page := addr >> 24
+	if page > 0xF {
+		b.Step(1)
+		b.LastAccess = access
+		return
+	}
 	b.stepAt(page, addr, access, 32)
 	defer func() { b.LastAccess = access }()
 	raw := addr // preserve for SRAM (no alignment there)
