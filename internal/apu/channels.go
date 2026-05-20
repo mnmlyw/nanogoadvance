@@ -224,6 +224,20 @@ func NewQuadChannel(s *scheduler.Scheduler, hasSweep bool) *QuadChannel {
 	return q
 }
 
+// Reset ⇄ QuadChannel::Reset (quad_channel.cc:17-24). Without this
+// override, SoundControl's psgReset (apu.go:303-313) on a master_enable
+// 1→0 transition would only zero the BaseChannel state and leave phase /
+// sample / waveDuty / dacEnable / hasEvent from the prior cycle live, so
+// a same-frame disable+re-enable would resume from stale state.
+func (q *QuadChannel) Reset() {
+	q.BaseChannel.Reset()
+	q.phase = 0
+	q.Sample = 0
+	q.waveDuty = 0
+	q.dacEnable = false
+	q.hasEvent = false
+}
+
 var quadPattern = [4][8]int8{
 	{+8, -8, -8, -8, -8, -8, -8, -8},
 	{+8, +8, -8, -8, -8, -8, -8, -8},
@@ -498,6 +512,22 @@ func NewNoiseChannel(s *scheduler.Scheduler, bias *BIAS) *NoiseChannel {
 	s.Register(scheduler.EventClassAPUPSG4Generate, func(uint64) { n.Generate() })
 	n.Init(true, false, 64)
 	return n
+}
+
+// Reset ⇄ NoiseChannel::Reset (noise_channel.cc:18-31). See QuadChannel
+// note above — without this override, master_enable 1→0 leaves frequency
+// shift/ratio, width, LFSR, sample, skipCount, dacEnable, and hasEvent
+// alive across the disable cycle.
+func (n *NoiseChannel) Reset() {
+	n.BaseChannel.Reset()
+	n.frequencyShift = 0
+	n.frequencyRatio = 0
+	n.width = 0
+	n.dacEnable = false
+	n.lfsr = 0
+	n.Sample = 0
+	n.skipCount = 0
+	n.hasEvent = false
 }
 
 func (n *NoiseChannel) synthesisInterval(ratio, shift int) int64 {

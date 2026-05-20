@@ -221,8 +221,13 @@ type MP2KEngine interface {
 // StereoResampler ⇄ the slice of dsp.Resampler the APU drives in
 // StepMixer. Defined as an interface so internal/apu doesn't pull in the
 // dsp package (the frontend constructs the concrete resampler).
+//
+// Argument order is (left, right) — matches upstream's StereoSample
+// field order (stereo.hh `T left; T right;`) and upstream's apu.cc:186
+// which writes `{ sample[0], sample[1] }` where sample[0] is SIDE_LEFT
+// per registers.hh:16.
 type StereoResampler interface {
-	Write(r, l float32)
+	Write(l, r float32)
 	SetSampleRates(in, out float32)
 }
 

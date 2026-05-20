@@ -66,7 +66,8 @@ func (h *hostBuffer) pop() (dsp.StereoSample[float32], bool) {
 }
 
 // apuResamplerAdapter wraps a dsp.Resampler so it satisfies the
-// apu.StereoResampler interface (rL,rR-flat-args instead of dsp's struct).
+// apu.StereoResampler interface (flat (l, r) float32 pair instead of
+// dsp's StereoSample struct).
 type apuResamplerAdapter struct {
 	inner interface {
 		Write(s dsp.StereoSample[float32])
@@ -74,7 +75,7 @@ type apuResamplerAdapter struct {
 	}
 }
 
-func (a apuResamplerAdapter) Write(r, l float32) {
+func (a apuResamplerAdapter) Write(l, r float32) {
 	a.inner.Write(dsp.StereoSample[float32]{Left: l, Right: r})
 }
 func (a apuResamplerAdapter) SetSampleRates(in, out float32) {
