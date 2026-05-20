@@ -5,8 +5,6 @@
 // reproduce the booth-encoded carry behavior of the ARM7TDMI).
 package arm
 
-import "github.com/mnmlyw/nanogoadvance/internal/bus"
-
 func (a *ARM7TDMI) SetZeroAndSignFlag(value uint32) {
 	a.State.CPSR.SetN(value >> 31)
 	if value == 0 {
@@ -220,7 +218,3 @@ func (a *ARM7TDMI) ROR(operand *uint32, amount uint8, carry *uint32, immediate b
 	*operand = (*operand >> adj) | (*operand << ((32 - adj) & 31))
 	*carry = *operand >> 31
 }
-
-// Compile-time use of bus pkg so the import isn't elided when other files
-// don't reference it.
-var _ = bus.AccessNonsequential

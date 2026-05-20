@@ -124,7 +124,15 @@ func (s *Scheduler) Now() int64 { return s.now }
 // next pending event at the top of the heap. Used by the halt loop to
 // step from `now` to the next event in one call instead of 1-cycle
 // chunks (matches upstream's bus.Step(GetRemainingCycleCount()) usage).
+//
+// Lazily pops cancelled events sitting at the top; upstream cancels
+// in-place too but its Cancel() also fixes up the heap, which Go's
+// container/heap can't do without an extra index. Skipping them here
+// keeps RemainingCycleCount honest.
 func (s *Scheduler) TimestampTarget() int64 {
+	for len(s.queue) > 0 && s.queue[0].cancelled {
+		heap.Pop(&s.queue)
+	}
 	if len(s.queue) == 0 {
 		return 1<<62 - 1
 	}

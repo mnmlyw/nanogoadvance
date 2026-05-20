@@ -1039,15 +1039,6 @@ func (b *Bus) StopPrefetch() {
 	b.prefetch.active = false
 }
 
-// CPUStateHook / CPUR15Hook ⇄ the bits of nba::ARM7TDMI::state that
-// upstream's timing.cc accesses directly. Wired by core.New to break the
-// import cycle the other direction would create.
-var _ = false // keep gofmt from re-collapsing the docstrings above
-
-func (b *Bus) step(page uint32, access Access, width int) {
-	b.stepAt(page, 0, access, width)
-}
-
 // stepAt is the address-aware variant — needed for VRAM where BG vs OBJ
 // contention depends on the offset relative to the sprite VRAM boundary.
 func (b *Bus) stepAt(page uint32, addr uint32, access Access, width int) {

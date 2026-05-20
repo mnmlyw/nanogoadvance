@@ -57,7 +57,7 @@ type SpritePixel struct {
 	Data uint32 // packed: color | priority | window | alpha | mosaic
 }
 
-func (p *SpritePixel) Color() uint32    { return p.Data & 0x1FF }
+func (p *SpritePixel) Color() uint32    { return p.Data & 0xFF }
 func (p *SpritePixel) Priority() uint32 { return (p.Data >> 16) & 3 }
 func (p *SpritePixel) Window() bool     { return p.Data&(1<<18) != 0 }
 func (p *SpritePixel) Alpha() bool      { return p.Data&(1<<19) != 0 }

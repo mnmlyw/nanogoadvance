@@ -23,7 +23,7 @@ const (
 
 var (
 	ticksShift = [4]int{0, 6, 8, 10}
-	ticksMask  = [4]int64{0, 0x3F, 0xFF, 0x3FF}
+	ticksMask  = [4]int{0, 0x3F, 0xFF, 0x3FF}
 )
 
 type pending struct {
@@ -47,7 +47,7 @@ type channel struct {
 
 	running          bool
 	shift            int
-	mask             int64
+	mask             int
 	timestampStarted int64
 
 	eventOverflow scheduler.EventID
@@ -201,7 +201,7 @@ func (t *Timer) onControlWritten(chanID uint64) {
 	ch.mask = ticksMask[ch.control.frequency]
 
 	if ch.control.enable {
-		prescalerOffset := t.scheduler.Now() & ch.mask
+		prescalerOffset := t.scheduler.Now() & int64(ch.mask)
 		if enablePrevious {
 			if !ch.control.cascade {
 				t.startChannel(ch, prescalerOffset)
