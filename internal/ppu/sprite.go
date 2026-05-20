@@ -388,14 +388,15 @@ func (p *PPU) plotSpritePixel(x int, color uint32, ds *drawerState) {
 	if mode == OBJWindow && opaque {
 		pixel.Data |= 1 << 18 // set window bit
 	} else if priority < pPri || pColor == 0 {
-		c, _, a, w, m := pColor, pPri, pixel.Alpha(), pixel.Window(), pixel.Mosaic()
-		_ = a
+		// ⇄ upstream sprite.cc:319-328 Plot lambda — keep existing
+		// color/alpha/window if !opaque (only priority/mosaic update);
+		// override color+alpha if opaque. Mosaic always comes from ds.
+		c, a, w := pColor, pixel.Alpha(), pixel.Window()
 		if opaque {
 			c = color
 			a = (mode == OBJSemi)
 		}
-		m = ds.Mosaic
-		*pixel = makeSpritePixel(c, priority, a, w, m)
+		*pixel = makeSpritePixel(c, priority, a, w, ds.Mosaic)
 	}
 }
 

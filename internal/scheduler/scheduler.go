@@ -206,10 +206,6 @@ func (s *Scheduler) Step(target int64) {
 	}
 }
 
-// Drain fires all due events at the current `s.now`. Retained for
-// callers that just want to flush without bumping the clock.
-func (s *Scheduler) Drain() { s.Step(s.now) }
-
 // Add ⇄ Scheduler::Add(delay, closure). Closure-based event — NOT saved
 // in CopyState (closures can't be serialised).
 func (s *Scheduler) Add(delay int64, cb Callback) EventID {

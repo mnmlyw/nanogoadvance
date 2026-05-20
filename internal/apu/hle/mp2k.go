@@ -54,15 +54,6 @@ type SoundChannel struct {
 	Unknown2        [6]uint32
 }
 
-// Packed sizeof(SoundChannel) = 14 single-byte fields + 18-byte unknown1
-// + 2 u32 (freq, wave_address) + 6 u32 (unknown2) = 64 bytes.
-const soundChannelSize = 64
-
-// Packed sizeof(SoundInfo) header (before channels[]): u32 magic +
-// 4 u8 + 8 u8 (unknown0) + 2 s32 + 14 u32 = 80 bytes. Total = 80 + 12*64 = 848.
-const soundInfoHeaderSize = 80
-const soundInfoTotalSize = soundInfoHeaderSize + MP2KMaxSoundChannels*soundChannelSize
-
 // SoundInfo ⇄ MP2K::SoundInfo.
 type SoundInfo struct {
 	Magic               uint32
@@ -348,7 +339,7 @@ func (m *MP2K) RenderFrame() {
 			}
 			waveDataBegin := channel.WaveAddress + 16 // sizeof(WaveInfo)
 			s.waveData = m.bus.GetHostAddress(waveDataBegin, int(waveSize))
-			if s.waveData == nil || len(s.waveData) == 0 {
+			if len(s.waveData) == 0 {
 				channel.Status = 0
 				continue
 			}

@@ -145,8 +145,8 @@ func LookupGameDB(data []byte) GameInfo {
 	if len(data) < 0xB0 {
 		return GameInfo{BackupType: BackupDetect}
 	}
-	code := string(data[0xAC:0xB0])
-	if info, ok := GameDB[code]; ok {
+	// Direct string([]byte) in a map index elides the allocation in Go.
+	if info, ok := GameDB[string(data[0xAC:0xB0])]; ok {
 		return info
 	}
 	return GameInfo{BackupType: BackupDetect}
