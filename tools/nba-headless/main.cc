@@ -114,14 +114,29 @@ void WriteWav(fs::path const& path, std::vector<std::int16_t> const& pcm, int ra
   f.write(reinterpret_cast<const char*>(pcm.data()), data_bytes);
 }
 
+// FNV-1a 64-bit over the 240*160 ARGB pixels of one framebuffer. Must
+// stay byte-identical to the per-frame hash in
+// tests/upstream_baseline_test.go.
+std::uint64_t HashFrame(std::uint32_t const* fb) {
+  std::uint64_t h = 1469598103934665603ULL;
+  for (int i = 0; i < kWidth * kHeight; ++i) {
+    h ^= static_cast<std::uint64_t>(fb[i]);
+    h *= 1099511628211ULL;
+  }
+  return h;
+}
+
 [[noreturn]] void Usage() {
   std::fprintf(stderr,
-    "usage: nba-headless --rom PATH [--bios PATH] --out DIR\n"
+    "usage: nba-headless --rom PATH [--bios PATH] [--out DIR]\n"
     "                    [--frames N] [--interval F] [--skip-frames K]\n"
     "                    [--audio WAV] [--audio-rate HZ]\n"
     "                    [--script-emerald]   replay the Birch-intro\n"
     "                                          START/A press script from\n"
-    "                                          tests/pokemon_flicker_test.go\n");
+    "                                          tests/pokemon_flicker_test.go\n"
+    "                    [--hash-out PATH]    write per-frame FNV-1a hashes\n"
+    "                                          (binary: 'NBAHASHv1\\0' + u32\n"
+    "                                          frame_count + u64*frame_count)\n");
   std::exit(2);
 }
 
@@ -149,7 +164,7 @@ std::vector<EmeraldEvent> EmeraldScript() {
 } // namespace
 
 int main(int argc, char** argv) {
-  std::string rom_path, bios_path, out_dir, audio_path;
+  std::string rom_path, bios_path, out_dir, audio_path, hash_out;
   int frames = 600;
   int interval = 60;
   int skip_frames = 0;
@@ -171,11 +186,16 @@ int main(int argc, char** argv) {
     else if (a == "--audio") audio_path = next();
     else if (a == "--audio-rate") audio_rate = std::stoi(next());
     else if (a == "--script-emerald") script_emerald = true;
+    else if (a == "--hash-out") hash_out = next();
     else { std::fprintf(stderr, "unknown arg: %s\n", a.c_str()); Usage(); }
   }
-  if (rom_path.empty() || out_dir.empty()) Usage();
+  if (rom_path.empty()) Usage();
+  if (out_dir.empty() && hash_out.empty()) {
+    std::fprintf(stderr, "--out or --hash-out required\n");
+    Usage();
+  }
 
-  fs::create_directories(out_dir);
+  if (!out_dir.empty()) fs::create_directories(out_dir);
 
   auto config = std::make_shared<nba::Config>();
   auto capture = std::make_shared<CaptureVideo>();
@@ -216,6 +236,9 @@ int main(int argc, char** argv) {
   auto script = script_emerald ? EmeraldScript() : std::vector<EmeraldEvent>{};
   std::size_t script_idx = 0;
 
+  std::vector<std::uint64_t> hashes;
+  if (!hash_out.empty()) hashes.reserve(frames);
+
   std::uint64_t shot_index = 0;
   for (int f = 0; f < frames; ++f) {
     // Apply scripted input before the frame, matching the Go test's
@@ -226,6 +249,8 @@ int main(int argc, char** argv) {
     }
     core->RunForOneFrame();
 
+    if (!hash_out.empty()) hashes.push_back(HashFrame(capture->latest));
+
     if (rec_audio) {
       phase += samples_per_frame;
       int frames_to_pump = static_cast<int>(phase);
@@ -233,6 +258,7 @@ int main(int argc, char** argv) {
       if (frames_to_pump > 0) rec_audio->Pump(frames_to_pump);
     }
 
+    if (out_dir.empty()) continue;
     if (f < skip_frames) continue;
     if ((f - skip_frames) % interval == 0) {
       DumpPng(out_dir, shot_index, capture->latest);
@@ -240,6 +266,20 @@ int main(int argc, char** argv) {
       std::fflush(stdout);
       ++shot_index;
     }
+  }
+
+  if (!hash_out.empty()) {
+    std::ofstream hf(hash_out, std::ios::binary);
+    if (!hf) {
+      std::fprintf(stderr, "failed to open %s\n", hash_out.c_str());
+      return 1;
+    }
+    hf.write("NBAHASHv1", 9);
+    char nul = 0; hf.write(&nul, 1);
+    std::uint32_t n = static_cast<std::uint32_t>(hashes.size());
+    hf.write(reinterpret_cast<const char*>(&n), 4);
+    hf.write(reinterpret_cast<const char*>(hashes.data()), n * sizeof(std::uint64_t));
+    std::fprintf(stdout, "wrote %u frame hashes to %s\n", n, hash_out.c_str());
   }
 
   if (rec_audio && !audio_path.empty()) {
