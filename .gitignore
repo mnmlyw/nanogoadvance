@@ -8,6 +8,12 @@
 /nanogoadvance
 /smoketest
 
+# Upstream NBA C++ source for diffing (not redistributed)
+/upstream/
+
+# CMake build output for tools/nba-headless
+/tools/nba-headless/build/
+
 # macOS
 .DS_Store
 
