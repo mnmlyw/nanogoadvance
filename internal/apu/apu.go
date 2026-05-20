@@ -230,8 +230,14 @@ type StereoResampler interface {
 // into. ReadSamples drains it 1:1 — the consumer never sees the APU's
 // native rate, only host-rate samples (matching upstream's
 // StereoRingBuffer<float> model).
+//
+// Available + Peek mirror upstream's RingBuffer<T> interface so
+// ReadSamples can reproduce the underrun-fallback Peek-loop in
+// callback.cc (instead of zero-filling, which produces audible clicks).
 type StereoSink interface {
 	Pop() (r, l float32, ok bool)
+	Available() int
+	Peek(offset int) (r, l float32)
 }
 
 type APU struct {
@@ -495,12 +501,14 @@ func (a *APU) SampleRate() int {
 
 // ReadSamples drains up to `len(dst)/4` stereo frames into dst (int16 LE
 // stereo interleaved, byte form) from the host-rate sink ring. 1:1 drain
-// — no rate conversion at the consumer (matches upstream's
-// AudioCallback). Missing samples are zero-filled. Called from the audio
-// device thread.
+// — no rate conversion at the consumer.
+//
+// ⇄ upstream callback.cc AudioCallback: when the buffer has enough,
+// Pop and write; when underrunning, Peek-loop the available samples
+// (repeat-pad) instead of zero-filling, which produces an audible
+// stutter instead of a click.
 func (a *APU) ReadSamples(dst []byte) int {
 	if a.sink == nil {
-		// No sink wired (test harness, headless). Fill with silence.
 		for i := range dst {
 			dst[i] = 0
 		}
@@ -519,23 +527,49 @@ func (a *APU) ReadSamples(dst []byte) int {
 		}
 		return v
 	}
-	n := 0
-	for i := 0; i+3 < len(dst); i += 4 {
-		r, l, ok := a.sink.Pop()
-		if !ok {
-			dst[i+0] = 0
-			dst[i+1] = 0
-			dst[i+2] = 0
-			dst[i+3] = 0
-		} else {
-			lv := int16(clamp(l) * 32767)
-			rv := int16(clamp(r) * 32767)
-			dst[i+0] = byte(lv)
-			dst[i+1] = byte(lv >> 8)
-			dst[i+2] = byte(rv)
-			dst[i+3] = byte(rv >> 8)
+	// math.Round on float32 — same semantics as std::round for finite,
+	// non-NaN values within the int16 range guaranteed by clamp.
+	round := func(v float32) int16 {
+		if v >= 0 {
+			return int16(v + 0.5)
 		}
-		n += 4
+		return int16(v - 0.5)
+	}
+	samples := len(dst) / 4
+	available := a.sink.Available()
+	n := 0
+	if available >= samples {
+		for x := 0; x < samples; x++ {
+			r, l, _ := a.sink.Pop()
+			lv := round(clamp(l) * 32767)
+			rv := round(clamp(r) * 32767)
+			dst[n+0] = byte(lv)
+			dst[n+1] = byte(lv >> 8)
+			dst[n+2] = byte(rv)
+			dst[n+3] = byte(rv >> 8)
+			n += 4
+		}
+	} else if available > 0 {
+		y := 0
+		for x := 0; x < samples; x++ {
+			r, l := a.sink.Peek(y)
+			lv := round(clamp(l) * 32767)
+			rv := round(clamp(r) * 32767)
+			if y++; y >= available {
+				y = 0
+			}
+			dst[n+0] = byte(lv)
+			dst[n+1] = byte(lv >> 8)
+			dst[n+2] = byte(rv)
+			dst[n+3] = byte(rv >> 8)
+			n += 4
+		}
+	} else {
+		// Empty buffer — silence is the only sensible choice.
+		for i := 0; i < samples*4; i++ {
+			dst[i] = 0
+		}
+		n = samples * 4
 	}
 	return n
 }

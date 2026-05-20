@@ -89,6 +89,26 @@ func (h *hostBuffer) Pop() (r, l float32, ok bool) {
 	return v.Right, v.Left, hit
 }
 
+// Available returns the current number of unread samples. Used by the
+// APU's underrun-fallback Peek loop.
+func (h *hostBuffer) Available() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.tail >= h.head {
+		return h.tail - h.head
+	}
+	return h.cap - h.head + h.tail
+}
+
+// Peek returns the sample at `offset` from the current head WITHOUT
+// advancing the read pointer. Caller must ensure offset < Available().
+func (h *hostBuffer) Peek(offset int) (r, l float32) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := h.data[(h.head+offset)%h.cap]
+	return v.Right, v.Left
+}
+
 // audioReader is the io.Reader handed to ebiten audio.NewPlayer — drains
 // the APU sink ring 1:1 (matches upstream's AudioCallback semantics).
 type audioReader struct{ f *Frontend }

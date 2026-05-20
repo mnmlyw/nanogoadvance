@@ -156,7 +156,10 @@ func (r *SincResampler) SetSampleRates(in, out float32) {
 	if r.resamplePhaseShift > 1.0 {
 		cutoff /= float64(r.resamplePhaseShift)
 	}
-	kernelSum := 0.0
+	// kernelSum is float32 (single precision) to match upstream
+	// sinc.hh:28 (`float kernelSum = 0.0`). Accumulating in float64
+	// here computes a different sub-LSB normalisation than upstream.
+	var kernelSum float32
 	for n := 0; n < r.points; n++ {
 		for m := range sincLUTResolution {
 			t := float64(m) / float64(sincLUTResolution)
@@ -165,12 +168,12 @@ func (r *SincResampler) SetSampleRates(in, out float32) {
 			sinc := math.Sin(cutoff*x1) / x1
 			blackman := 0.42 - 0.49*math.Cos(x2) + 0.076*math.Cos(2*x2)
 			r.lut[n*sincLUTResolution+m] = sinc * blackman
-			kernelSum += sinc * blackman
+			kernelSum += float32(sinc * blackman)
 		}
 	}
 	kernelSum /= sincLUTResolution
 	for i := 0; i < r.points*sincLUTResolution; i++ {
-		r.lut[i] /= kernelSum
+		r.lut[i] /= float64(kernelSum)
 	}
 }
 
