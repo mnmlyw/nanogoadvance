@@ -784,17 +784,55 @@ func (b *Bus) WriteByte(addr uint32, v uint8, access Access) {
 	case 0x7:
 		// 8-bit OAM writes are dropped on hardware.
 	case 0x8, 0x9, 0xA, 0xB, 0xC, 0xD:
-		// Upstream byte writes to ROM go through WriteROM with `value * 0x0101`
-		// — the GPIO chip is the only writable thing in this region (besides
-		// EEPROM, which lives at a higher address and is handled separately).
-		off := addr & 0x01FFFFFE
-		if b.GPIO != nil && off >= 0xC4 && off <= 0xC8 {
-			b.GPIO.Write(off, v)
-		}
+		// Upstream byte writes to cart go through WriteROM(value*0x0101).
+		b.writeROMHalf(addr, uint16(v)|uint16(v)<<8, access&AccessSequential != 0)
 	case 0xE, 0xF:
 		if b.BackupSRAM != nil {
 			b.BackupSRAM.Write(addr, v)
 		}
+	}
+}
+
+// writePRAMVRAMHalf ⇄ upstream WritePRAM<u16> / WriteVRAM<u16>
+// (bus.hh:148-160 + 192-219). One contended Step+Sync loop, then a
+// 16-bit aligned write. Used by WriteHalf directly and by WriteWord
+// twice for the decomposed 32-bit path.
+func (b *Bus) writePRAMVRAMHalf(page, addr uint32, value uint16, access Access) {
+	b.stepAt(page, addr, access, 16)
+	addr &= ^uint32(1)
+	switch page {
+	case 0x5:
+		binary.LittleEndian.PutUint16(b.Palette[addr&0x3FF:], value)
+	case 0x6:
+		off := addr & 0x1FFFF
+		if off >= 0x18000 {
+			off &= 0x17FFF
+			boundary := uint32(0x10000)
+			if b.PPUSpriteVRAMBoundaryHook != nil {
+				boundary = b.PPUSpriteVRAMBoundaryHook()
+			}
+			if off < boundary {
+				return // drop OBJ-region write that mirrors into BG region
+			}
+		}
+		binary.LittleEndian.PutUint16(b.VRAM[off:], value)
+	}
+}
+
+// writeROMHalf ⇄ ROM::WriteROM (rom.hh:184-197). Aligned 16-bit write
+// to the cart region: routes to GPIO if in range, EEPROM if mapped,
+// otherwise updates the ROM address latch on non-sequential access.
+// Used by WriteByte (value byte-replicated), WriteHalf, and WriteWord
+// (two calls — low non-sequential, high always sequential).
+func (b *Bus) writeROMHalf(addr uint32, value uint16, sequential bool) {
+	addr &= 0x01FFFFFE
+	if b.GPIO != nil && addr >= 0xC4 && addr <= 0xC8 {
+		b.GPIO.Write(addr, uint8(value))
+	}
+	if b.BackupEEPROM != nil && (addr&b.EEPROMMask) == b.EEPROMMask {
+		b.BackupEEPROM.Write(0, uint8(value))
+	} else if !sequential {
+		b.ROMAddressLatch = addr & b.ROMMask
 	}
 }
 
@@ -842,13 +880,7 @@ func (b *Bus) WriteHalf(addr uint32, v uint16, access Access) {
 	case 0x7:
 		binary.LittleEndian.PutUint16(b.OAM[addr&0x3FF:], v)
 	case 0x8, 0x9, 0xA, 0xB, 0xC, 0xD:
-		off := addr & 0x01FFFFFE
-		if b.GPIO != nil && off >= 0xC4 && off <= 0xC8 {
-			b.GPIO.Write(off, uint8(v))
-		}
-		if b.BackupEEPROM != nil && (off&b.EEPROMMask) == b.EEPROMMask {
-			b.BackupEEPROM.Write(0, uint8(v))
-		}
+		b.writeROMHalf(addr, v, access&AccessSequential != 0)
 	case 0xE, 0xF:
 		// nba: `value >>= (address & 1) << 3` then write low byte —
 		// uses the raw, unaligned address.
@@ -865,6 +897,17 @@ func (b *Bus) WriteWord(addr uint32, v uint32, access Access) {
 	if page > 0xF {
 		b.Step(1)
 		b.LastAccess = access
+		return
+	}
+	// PRAM (0x5) and VRAM (0x6) u32 writes decompose into two halfword
+	// writes, each with its own contended Step+Sync loop — matches
+	// upstream bus.hh:148-160 (WritePRAM) and :192-219 (WriteVRAM). The
+	// PPU sampling mid-cycle would otherwise observe the half-written
+	// 32-bit value through a single-cycle window.
+	if page == 0x5 || page == 0x6 {
+		defer func() { b.LastAccess = access }()
+		b.writePRAMVRAMHalf(page, addr|0, uint16(v), access)
+		b.writePRAMVRAMHalf(page, addr|2, uint16(v>>16), access)
 		return
 	}
 	b.stepAt(page, addr, access, 32)
@@ -896,34 +939,15 @@ func (b *Bus) WriteWord(addr uint32, v uint32, access Access) {
 				break
 			}
 		}
-	case 0x5:
-		binary.LittleEndian.PutUint32(b.Palette[addr&0x3FF:], v)
-	case 0x6:
-		off := addr & 0x1FFFF
-		if off >= 0x18000 {
-			off &= 0x17FFF
-			boundary := uint32(0x10000)
-			if b.PPUSpriteVRAMBoundaryHook != nil {
-				boundary = b.PPUSpriteVRAMBoundaryHook()
-			}
-			if off < boundary {
-				return
-			}
-		}
-		binary.LittleEndian.PutUint32(b.VRAM[off:], v)
 	case 0x7:
 		binary.LittleEndian.PutUint32(b.OAM[addr&0x3FF:], v)
 	case 0x8, 0x9, 0xA, 0xB, 0xC, 0xD:
-		// 32-bit ROM writes are split into two halfword writes by upstream.
-		off := addr & 0x01FFFFFC
-		if b.GPIO != nil {
-			if off >= 0xC4 && off <= 0xC8 {
-				b.GPIO.Write(off, uint8(v))
-			}
-			if off+2 >= 0xC4 && off+2 <= 0xC8 {
-				b.GPIO.Write(off+2, uint8(v>>16))
-			}
-		}
+		// 32-bit ROM writes split into two halfword WriteROM calls —
+		// first uses caller-supplied sequential, second always
+		// sequential (bus.cc:257-258).
+		seq := access&AccessSequential != 0
+		b.writeROMHalf(addr|0, uint16(v), seq)
+		b.writeROMHalf(addr|2, uint16(v>>16), true)
 	case 0xE, 0xF:
 		if b.BackupSRAM != nil {
 			shift := (raw & 3) << 3
