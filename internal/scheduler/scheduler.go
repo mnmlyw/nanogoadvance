@@ -97,12 +97,7 @@ type event struct {
 type pq []*event
 
 func (p pq) Len() int { return len(p) }
-func (p pq) Less(i, j int) bool {
-	if p[i].key != p[j].key {
-		return p[i].key < p[j].key
-	}
-	return p[i].id < p[j].id
-}
+func (p pq) Less(i, j int) bool { return p[i].key < p[j].key }
 func (p pq) Swap(i, j int) { p[i], p[j] = p[j], p[i]; p[i].index = i; p[j].index = j }
 func (p *pq) Push(x any)   { e := x.(*event); e.index = len(*p); *p = append(*p, e) }
 func (p *pq) Pop() any     { old := *p; n := len(old); e := old[n-1]; *p = old[:n-1]; return e }
@@ -168,29 +163,44 @@ func (s *Scheduler) Reset() {
 func (s *Scheduler) SetTimestampNow(t int64) { s.now = t }
 
 // Advance pushes the global clock forward and fires due events.
+//
+// ⇄ Scheduler::AddCycles (scheduler.hh:130-134) — fire events with
+// timestamp ≤ target, setting `now` to each event's timestamp BEFORE
+// its callback runs so Sync() / GetTimestampNow() inside the callback
+// see the event-time, not the post-bump target. Bump to target after.
 func (s *Scheduler) Advance(cycles int64) {
-	s.now += cycles
-	s.Drain()
+	target := s.now + cycles
+	s.Step(target)
+	s.now = target
 }
 
-func (s *Scheduler) Drain() {
+// Step ⇄ Scheduler::Step (scheduler.hh:245-252). Drains all events
+// scheduled at or before `target`, advancing `s.now` to each event's
+// timestamp as it fires.
+func (s *Scheduler) Step(target int64) {
 	for s.queue.Len() > 0 {
 		top := s.queue[0]
 		if top.cancelled {
 			heap.Pop(&s.queue)
 			continue
 		}
-		if top.timestamp > s.now {
+		if top.timestamp > target {
 			return
 		}
 		heap.Pop(&s.queue)
+		late := target - top.timestamp
+		s.now = top.timestamp
 		if top.class != EventClassEndOfQueue {
 			s.callbacks[top.class](top.userData)
 		} else if top.cb != nil {
-			top.cb(s.now - top.timestamp)
+			top.cb(late)
 		}
 	}
 }
+
+// Drain fires all due events at the current `s.now`. Retained for
+// callers that just want to flush without bumping the clock.
+func (s *Scheduler) Drain() { s.Step(s.now) }
 
 // Add ⇄ Scheduler::Add(delay, closure). Closure-based event — NOT saved
 // in CopyState (closures can't be serialised).
