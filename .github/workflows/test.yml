@@ -19,26 +19,32 @@ jobs:
         # the bare ubuntu-latest runner. xorg-dev pulls in libx11-dev
         # (X11/Xlib.h); libasound2-dev provides alsa.pc for oto's
         # pkg-config; libgl1-mesa-dev for any GL context creation paths.
+        # xvfb hosts a virtual display so Ebiten's TestMain in
+        # internal/platform can bootstrap GLFW without a real screen.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev xvfb
       - name: build
         run: go build ./...
       - name: vet
         # The 9 stdmethods warnings are pre-existing false positives —
         # our memory-bus ReadByte/WriteByte methods aren't io.Reader/
-        # io.Writer streams. Filter them out so genuine vet issues fail.
+        # io.Writer streams. Filter them + the "# package" header lines
+        # that vet prints alongside warnings.
         run: |
-          out=$(go vet ./... 2>&1 | grep -vE 'method (Read|Write)Byte\b.*stdmethods' || true)
+          out=$(go vet ./... 2>&1 \
+            | grep -vE '^# github\.com/|method (Read|Write)Byte\b' \
+            || true)
           if [ -n "$out" ]; then
             echo "$out"
             exit 1
           fi
       - name: test
+        # xvfb-run wraps the test so internal/platform's TestMain can
+        # open a tiny GLFW window for headless shader pixel-readback.
         # ROM-dependent tests (jsmolka, PPU, savestate, Pokemon Emerald
-        # baseline) auto-skip when their fixtures aren't on disk, so
-        # bare CI runs only the unit + headless tests.
-        run: go test -count=1 -timeout 5m ./...
+        # baseline) auto-skip when their fixtures aren't on disk.
+        run: xvfb-run -a go test -count=1 -timeout 5m ./...
 
   test-race:
     runs-on: ubuntu-latest
@@ -51,12 +57,12 @@ jobs:
       - name: install linux deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev xvfb
       - name: test -race
         # Race detector catches data races. Skip the Pokemon Emerald
         # tests — race instrumentation slows the emulator ~10x, and
         # those tests already auto-skip on bare CI for lack of ROM.
         run: |
-          go test -count=1 -timeout 10m -race \
+          xvfb-run -a go test -count=1 -timeout 10m -race \
             -skip 'TestPokemonEmerald|TestEmeraldBirchUpstreamBaseline' \
             ./...
