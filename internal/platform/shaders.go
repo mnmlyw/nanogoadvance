@@ -328,7 +328,7 @@ func Fragment(_ vec4, srcPos vec2, _ vec4) vec4 {
 
 	return out / 255.0
 }
-` + xbrzCommonInputW
+`
 
 const shaderXBRZ1 = `
 //kage:unit pixels
@@ -473,7 +473,3 @@ func Fragment(_ vec4, srcPos vec2, _ vec4) vec4 {
 }
 `
 
-// xbrzCommonInputW is appended to pass-0 source — placeholder for any
-// future shared epilogue (kept empty to allow string concatenation
-// without altering generated GLSL).
-const xbrzCommonInputW = ``

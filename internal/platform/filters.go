@@ -198,10 +198,7 @@ func (p *filterPipeline) apply(srcTex *ebiten.Image, dst *ebiten.Image) {
 		// in Ebiten: nearest-scaled to the largest integer multiple of
 		// 240x160 that fits the window, then linear-filtered to fit.
 		// Same visual result without a shader pass.
-		intScale := minInt(outW/width, outH/height)
-		if intScale < 1 {
-			intScale = 1
-		}
+		intScale := max(1, min(outW/width, outH/height))
 		pre := p.scaledIntermediate(width*intScale, height*intScale)
 		pre.Clear()
 		op := &ebiten.DrawImageOptions{}
@@ -288,9 +285,3 @@ func (p *filterPipeline) scaledIntermediate(w, h int) *ebiten.Image {
 	return p.scaledOut
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

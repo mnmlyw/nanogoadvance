@@ -23,6 +23,30 @@ Saves persist to a `.sav` next to the ROM. Pass `-mp2k-hle` for the MP2K
 audio HLE (recommended for most retail games). `-load-state path` restores
 a save state at startup.
 
+## Video filters
+
+Post-PPU shader pipeline ported from NanoBoyAdvance, implemented as
+Ebiten Kage shaders. Three orthogonal options:
+
+```sh
+./nanogoadvance -color=agb -lcd-ghosting -filter=xbrz path/to/game.gba
+```
+
+- `-color=none|agb|higan` — color correction. `agb` is Pokefan531's
+  GBA-LCD color mangler (warm, washed-out cast that matches the
+  original GBA screen); `higan` is the higan emulator's subtler
+  profile.
+- `-lcd-ghosting` — 50/50 interframe blend simulating the GBA LCD's
+  slow pixel response.
+- `-filter=nearest|linear|sharp|lcd1x|xbrz` — spatial scaling.
+  `sharp` is integer-multiple nearest + linear fit (less blurry than
+  pure linear, less stairstepped than pure nearest). `lcd1x` adds a
+  visible LCD pixel grid. `xbrz` is the 4xBRZ pixel-art upscaler
+  with edge-aware diagonal smoothing.
+
+The defaults (no flags) render plain 3x nearest — same as before the
+filter pipeline existed.
+
 For a headless dry-run (no window, prints CPU state after N frames):
 
 ```sh
@@ -36,7 +60,7 @@ and unit tests can be green while the CPU is still broken, so only the
 ROM tests count.
 
 ```sh
-go test ./tests/...
+go test ./...
 ```
 
 The harness loads each ROM in `tests/testdata/`, runs until it parks
@@ -51,10 +75,46 @@ scanlines (e.g. `tests/pokemon_flicker_test.go`). Those auto-skip if
 the required ROM/BIOS isn't on disk, so CI runs only the jsmolka
 suite.
 
+### Upstream cross-validation
+
+`tests/upstream_baseline_test.go` asserts byte-level parity with the
+upstream NanoBoyAdvance C++ emulator: it drives the port through the
+same scripted Pokemon Emerald input and compares per-frame FNV-1a
+hashes against `tests/testdata/emerald_birch.hashes` (a binary
+baseline produced by `tools/nba-headless`). Tolerates a small
+Levenshtein edit distance to absorb the ±1-frame phase noise from
+ARM-instruction-overshoot timing.
+
+To build the headless upstream harness and regenerate the baseline
+after intentional behavior changes (or when upstream NBA updates):
+
+```sh
+# One-time: clone upstream alongside the project (gitignored).
+git clone https://github.com/nba-emu/NanoBoyAdvance.git upstream/NanoBoyAdvance
+
+# Build the C++ harness (CMake — requires a C++20 compiler).
+cmake -S tools/nba-headless -B tools/nba-headless/build
+cmake --build tools/nba-headless/build --target nba-headless
+
+# Regenerate the baseline.
+tools/nba-headless/build/nba-headless \
+  --rom $EMERALD_ROM --bios $GBA_BIOS --script-emerald \
+  --frames 3000 --hash-out tests/testdata/emerald_birch.hashes
+```
+
+### Linting
+
+`go vet` emits 9 stdmethods warnings about `ReadByte`/`WriteByte`
+methods not matching `io.Reader`/`io.Writer` signatures. They're
+intentional — these are memory-bus accessors that share the name by
+accident, not stream methods. The CI workflow at
+`.github/workflows/test.yml` filters them out so they don't fail
+builds.
+
 ## Status
 
-See [STATUS.md](STATUS.md) for the current open issue (Pokemon Emerald
-scanline flicker), known limitations, and the development process.
+See [STATUS.md](STATUS.md) for the current state, known limitations,
+and the development process.
 
 ## File mapping
 

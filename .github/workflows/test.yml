@@ -1,0 +1,46 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: build
+        run: go build ./...
+      - name: vet
+        # The 9 stdmethods warnings are pre-existing false positives —
+        # our memory-bus ReadByte/WriteByte methods aren't io.Reader/
+        # io.Writer streams. Filter them out so genuine vet issues fail.
+        run: |
+          out=$(go vet ./... 2>&1 | grep -vE 'method (Read|Write)Byte\b.*stdmethods' || true)
+          if [ -n "$out" ]; then
+            echo "$out"
+            exit 1
+          fi
+      - name: test
+        # ROM-dependent tests (jsmolka, PPU, savestate, Pokemon Emerald
+        # baseline) auto-skip when their fixtures aren't on disk, so
+        # bare CI runs only the unit + headless tests.
+        run: go test -count=1 -timeout 5m ./...
+
+  test-race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: test -race
+        # Race detector catches data races in the Ebiten frontend
+        # (audio goroutine vs emulator goroutine vs render).
+        run: go test -count=1 -timeout 10m -race ./...

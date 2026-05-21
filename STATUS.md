@@ -2,80 +2,49 @@
 
 Snapshot of where the port stands. Update as things change.
 
-## Current issue — Pokemon Emerald scanline flicker (resolved as upstream-faithful)
+## Pokemon Emerald scanline flicker — resolved (upstream-faithful)
 
-**Verdict:** the 18 frames still flagged by `tests/pokemon_flicker_test.go`
-are **byte-identical** to upstream NanoBoyAdvance's output for the same
-input. Cross-verified via `tools/nba-headless/` (a CMake harness that
-links against `upstream/NanoBoyAdvance/` and drives the same scripted
-input). The X-Y-X heuristic in the test is detecting genuine
-single-frame pixel oscillations in the Birch intro — they exist in
-upstream NBA too, so they're not port regressions.
+Real-game regression originally caught by `tests/pokemon_flicker_test.go`:
+211 frames out of 3000 in the Birch intro tripped the X-Y-X signature
+(scanline flips for one frame, then snaps back). Cluster around y≈40,
+60–80, earliest at frame 568 with a 32-line stride.
 
-**What got us from 211 → 18:** the scheduler `Now()` semantics inside
-`Step` (`internal/scheduler/scheduler.go:170-200`). Upstream
-`Scheduler::Step` sets `timestamp_now = event->timestamp` BEFORE each
-callback fires; the port previously bumped `s.now` to the run target up
-front, so callbacks read post-bump time. Fixing this dropped the count
-91%.
+**Root cause:** scheduler `Now()` semantics inside event dispatch
+(`internal/scheduler/scheduler.go`). Upstream `Scheduler::Step`
+(`scheduler.hh:245-252`) sets `timestamp_now = event->timestamp`
+BEFORE each callback fires; the port previously bumped `s.now` to the
+run target up front, so per-cycle callbacks (`DrawBackground`,
+`DrawSprite`, etc.) computed cycle deltas against post-bump time and
+over-advanced the BG/sprite engines. Over many scanlines this leaked
+into the per-pixel affine counter — exactly one extra `BGPA` per
+affected scanline, which the pixel-diff confirmed.
 
-The test still fires red because it doesn't know about the 18 baseline
-frames. Future work: either add a known-upstream-flicker allowlist, or
-replace the X-Y-X heuristic with a direct PNG-baseline comparison
-against `nba-headless` output.
+**Fix:** commit `e7e1eb6` aligned `Step`/`Advance` with upstream.
+Dropped flicker 211 → 18 frames (91% reduction).
 
-## Historical issue — Pokemon Emerald scanline flicker (original)
-
-Real-game regression caught by `tests/pokemon_flicker_test.go`:
-
-- 211 frames out of 3000 (`TestPokemonEmeraldBirchFlicker`) trip the X-Y-X
-  signature: scanline `y` at frame `f` differs from `f-1` and `f+1`, AND
-  `f-1` and `f+1` hash identically. That matches "a line flips wrong for one
-  frame, then snaps back" — not animation.
-- Hot scanlines cluster around y≈40, 60–80 (top of the visible field
-  during the Birch intro on Emerald). Top offenders: y=40 (8 hits), y=68
-  (8 hits), y=61, y=69, y=1 (7 hits each).
-- Earliest cluster: frame 568, 5 evenly-spaced scanlines (1, 33, 65, 97,
-  129 — exact 32-line stride suggests an affine BG row span or mosaic
-  Y-counter boundary).
-- Last fix tried (uncommitted in `internal/ppu/background.go`):
-  `advanceAffineXY` now updates the per-scanline working copy
-  `bgx.Current` / `bgy.Current` instead of the per-pixel `BG.Affine[id]`
-  (which `InitBackground` re-seeds from `Current` at the start of every
-  line, making any write to `Affine[id].X/Y` a no-op). This matches
-  upstream `background.cc:144-149` (`bgx[id]._current += bgpb[id]`).
-  The fix is correct upstream-wise but **does not eliminate the flicker**.
-
-### Next debug step
-
-Pull a triplet (`before`/`bad`/`after`) PNG dump via
-`FLICKER_DUMP=/tmp/flicker go test ... -run Birch...`, pick the earliest
-cluster (frame 568, 32-line stride), and diff per pixel. Cross-check the
-affected scanline against mGBA frame output (clone at `/private/tmp/mgba`)
-to confirm which frame is the wrong one. Diff the upstream
-`DrawBackgroundImpl` / `InitBackground` / `advanceAffineXY` paths against
-ours line-by-line — the 32-line stride strongly implies a mosaic or
-affine-counter bug, not a CPU/timing issue.
+**The remaining 18 frames are upstream-faithful** — byte-identical to
+NanoBoyAdvance's output for the same scripted input, cross-verified
+via `tools/nba-headless/`. They're genuine single-frame pixel
+oscillations in the Birch intro animation that exist in upstream NBA
+too. `tests/upstream_baseline_test.go` is the authoritative parity
+check (Levenshtein distance against a 3000-frame upstream baseline).
+`tests/pokemon_flicker_test.go` is informational only — keeps the
+X-Y-X count as a tuning signal.
 
 ## Limitations
 
-- **PPU rendering is incomplete relative to upstream**: any visible bug
-  in a real game is suspect until proven otherwise. The flicker above is
-  the first one we're chasing; expect more once a wider game corpus is
-  driven through the headless test harness.
-- **Post-PPU filters not implemented**: NanoBoyAdvance applies LCD
-  ghosting, color correction, etc. after the PPU. We don't — so
-  pixel-level frame comparisons against NBA's screen capture won't match
-  even when the PPU is byte-correct. (`project_upstream_pixel_diff` memo.)
-- **`tests/pokemon_flicker_test.go` is local-only**: it needs an Emerald
-  ROM at `~/Documents/gba/Pokemon - Emerald Version (USA, Europe).gba`
-  and a GBA BIOS at `~/Documents/gba/gba_bios.bin`, or `EMERALD_ROM` /
-  `GBA_BIOS` env overrides. It auto-skips on machines without them, so
-  CI won't catch this regression yet.
-- **Only jsmolka test ROMs are CI-gated**: `arm.gba`, `thumb.gba`,
-  `memory.gba`, `nes.gba`, plus `bios.gba`, `flash{64,128}.gba`,
-  `sram.gba`, etc. live in `tests/testdata/`. Anything outside those
-  ROMs depends on local-only tests or eyeballing.
+- **Only jsmolka test ROMs + the synthetic PPU/save ROMs are
+  CI-gated**: `arm.gba`, `thumb.gba`, `memory.gba`, `nes.gba`, plus
+  `bios.gba`, `flash{64,128}.gba`, `sram.gba`, etc. live in
+  `tests/testdata/`. The Pokemon Emerald baseline test is local-only
+  (auto-skips when the ROM/BIOS aren't on disk).
+- **Subsystem unit-test coverage is thin**: DMA, Timer, IRQ, Keypad,
+  GPIO/RTC, MP2K HLE are exercised only via Pokemon Emerald and the
+  jsmolka traces. Direct unit tests would catch regressions those
+  traces don't hit.
+- **`Layout()` doesn't handle window resize**: the Ebiten frontend
+  returns a fixed 3x logical size, so dragging the window corner
+  outer-scales the result instead of recomputing logical dimensions.
 - **mGBA cross-reference is scanline-accurate, not cycle-accurate**:
   good for visual ground truth, can't do cycle-level diffing against
   NanoBoyAdvance-style traces. (`reference_mgba_source` memo.)
