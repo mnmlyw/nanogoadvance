@@ -41,6 +41,10 @@ jobs:
           go-version: '1.25'
           cache: true
       - name: test -race
-        # Race detector catches data races in the Ebiten frontend
-        # (audio goroutine vs emulator goroutine vs render).
-        run: go test -count=1 -timeout 10m -race ./...
+        # Race detector catches data races. Skip the Pokemon Emerald
+        # tests — race instrumentation slows the emulator ~10x, and
+        # those tests already auto-skip on bare CI for lack of ROM.
+        run: |
+          go test -count=1 -timeout 10m -race \
+            -skip 'TestPokemonEmerald|TestEmeraldBirchUpstreamBaseline' \
+            ./...
