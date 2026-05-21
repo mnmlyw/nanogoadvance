@@ -27,26 +27,49 @@ import (
 	"github.com/mnmlyw/nanogoadvance/internal/keypad"
 )
 
-func TestEmeraldBirchUpstreamBaseline(t *testing.T) {
+// keyEvent — one scripted input event in a baseline run.
+type keyEvent struct {
+	frame int
+	key   keypad.Key
+	press bool
+}
+
+// emeraldScript — START/A spam to drive Emerald to the Birch intro.
+// Mirrored in tools/nba-headless main.cc EmeraldScript().
+func emeraldScript() []keyEvent {
+	pressAt := func(frame int, k keypad.Key) []keyEvent {
+		return []keyEvent{{frame, k, true}, {frame + 4, k, false}}
+	}
+	var script []keyEvent
+	for f := 60; f < 1500; f += 30 {
+		script = append(script, pressAt(f, keypad.KeyStart)...)
+		script = append(script, pressAt(f+12, keypad.KeyA)...)
+	}
+	return script
+}
+
+// runBaselineParity drives the port through `totalFrames` frames using
+// the given scripted input, hashes each presented frame, and asserts
+// the deduped distinct-frame sequence matches the upstream baseline
+// within `maxEditOps` Levenshtein distance. Auto-skips if ROM/BIOS/
+// baseline file isn't present.
+//
+// `script` may be nil for no-input runs (relies on the game's attract /
+// title-screen animations to exercise code paths).
+//
+// maxEditOps tunes tolerance for the ±1-frame phase noise both
+// emulators have from ARM-instruction overshoot. 20 is the
+// empirically-tuned value for Emerald; new games may need adjustment.
+func runBaselineParity(t *testing.T, romPath, biosPath, baselinePath string, script []keyEvent, maxEditOps int) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping upstream-baseline probe in -short mode")
 	}
-
-	romPath := os.Getenv("EMERALD_ROM")
-	if romPath == "" {
-		romPath = "/Users/yw/Documents/gba/Pokemon - Emerald Version (USA, Europe).gba"
-	}
-	biosPath := os.Getenv("GBA_BIOS")
-	if biosPath == "" {
-		biosPath = "/Users/yw/Documents/gba/gba_bios.bin"
-	}
-	const baselinePath = "testdata/emerald_birch.hashes"
-
 	if _, err := os.Stat(romPath); err != nil {
-		t.Skipf("ROM not found at %s (set EMERALD_ROM)", romPath)
+		t.Skipf("ROM not found at %s", romPath)
 	}
 	if _, err := os.Stat(biosPath); err != nil {
-		t.Skipf("BIOS not found at %s (set GBA_BIOS)", biosPath)
+		t.Skipf("BIOS not found at %s", biosPath)
 	}
 	baseline, err := loadBaseline(baselinePath)
 	if err != nil {
@@ -67,25 +90,7 @@ func TestEmeraldBirchUpstreamBaseline(t *testing.T) {
 	c.LoadROM(rom)
 	c.Reset()
 
-	// Same script as TestPokemonEmeraldBirchFlicker — also mirrored in
-	// tools/nba-headless main.cc EmeraldScript(). Keep all three in sync.
-	type keyEvent struct {
-		frame int
-		key   keypad.Key
-		press bool
-	}
-	pressAt := func(frame int, k keypad.Key) []keyEvent {
-		return []keyEvent{{frame, k, true}, {frame + 4, k, false}}
-	}
-	var script []keyEvent
-	for f := 60; f < 1500; f += 30 {
-		script = append(script, pressAt(f, keypad.KeyStart)...)
-		script = append(script, pressAt(f+12, keypad.KeyA)...)
-	}
 	scriptIdx := 0
-
-	// Drive the port for the baseline's frame count and collect per-frame
-	// hashes.
 	totalFrames := len(baseline)
 	portHashes := make([]uint64, totalFrames)
 	for f := 0; f < totalFrames; f++ {
@@ -98,24 +103,14 @@ func TestEmeraldBirchUpstreamBaseline(t *testing.T) {
 		portHashes[f] = hashFrame(fb[:])
 	}
 
-	// Compare AS CONTENT SEQUENCES: collapse consecutive duplicates, then
-	// run a two-pointer alignment that tolerates a small edit distance.
-	// Both Run(280896) loops overshoot to ARM instruction boundaries by a
-	// few cycles each, so the same content occasionally lands on a
-	// different presentation iteration (phase noise). And in transient
-	// title-screen animations one side may render N intermediate frames
-	// while the other renders N±1.
-	//
-	// Allow up to maxEditOps Levenshtein insert/delete/substitute ops
-	// across the trace. Tuned empirically: at writing time the trace had
-	// 10 ops over ~575 distinct frames (transient title-screen animation
-	// frames where one side renders N intermediate frames and the other
-	// renders N±1); maxEditOps gives ~2x headroom while still catching
-	// meaningful content regressions (any change that affects many frames
-	// pushes the distance well past this threshold).
+	// Compare AS CONTENT SEQUENCES: collapse consecutive duplicates,
+	// then run a banded Levenshtein. Both Run(280896) loops overshoot
+	// to ARM instruction boundaries by a few cycles, so the same
+	// content occasionally lands on a different presentation iteration
+	// (phase noise) and transient animations may render N±1 distinct
+	// frames between the two emulators.
 	portSeq := dedupConsec(portHashes)
 	upSeq := dedupConsec(baseline)
-	const maxEditOps = 20
 
 	d := alignEditDistance(portSeq, upSeq, maxEditOps+1)
 	if d > maxEditOps {
@@ -128,6 +123,44 @@ func TestEmeraldBirchUpstreamBaseline(t *testing.T) {
 		t.Logf("distinct-frame parity ok: %d edit ops over port=%d, upstream=%d frames",
 			d, len(portSeq), len(upSeq))
 	}
+}
+
+func defaultGBABIOS() string {
+	if p := os.Getenv("GBA_BIOS"); p != "" {
+		return p
+	}
+	return "/Users/yw/Documents/gba/gba_bios.bin"
+}
+
+func TestEmeraldBirchUpstreamBaseline(t *testing.T) {
+	rom := os.Getenv("EMERALD_ROM")
+	if rom == "" {
+		rom = "/Users/yw/Documents/gba/Pokemon - Emerald Version (USA, Europe).gba"
+	}
+	runBaselineParity(t, rom, defaultGBABIOS(), "testdata/emerald_birch.hashes", emeraldScript(), 20)
+}
+
+// TestZeldaMinishAttractUpstreamBaseline — no-input run through the
+// boot animation + title-screen attract sequence. Exercises code paths
+// Pokemon Emerald doesn't (e.g., Capcom's intro engine, the Minish
+// Cap-specific PPU effects).
+func TestZeldaMinishAttractUpstreamBaseline(t *testing.T) {
+	rom := os.Getenv("ZELDA_MINISH_ROM")
+	if rom == "" {
+		rom = "/Users/yw/Documents/gba/Legend of Zelda, The - The Minish Cap (USA).gba"
+	}
+	runBaselineParity(t, rom, defaultGBABIOS(), "testdata/zelda_minish_attract.hashes", nil, 20)
+}
+
+// TestMother3AttractUpstreamBaseline — no-input run through Mother 3's
+// boot + HAL/Nintendo logos + title. Mother 3 is famous for heavy
+// MP2K audio engine usage and sprite-driven cutscenes.
+func TestMother3AttractUpstreamBaseline(t *testing.T) {
+	rom := os.Getenv("MOTHER3_ROM")
+	if rom == "" {
+		rom = "/Users/yw/Documents/gba/Mother 3 (Japan).gba"
+	}
+	runBaselineParity(t, rom, defaultGBABIOS(), "testdata/mother3_attract.hashes", nil, 20)
 }
 
 // dedupConsec collapses runs of identical consecutive values down to one.
