@@ -190,8 +190,8 @@ int main(int argc, char** argv) {
     else { std::fprintf(stderr, "unknown arg: %s\n", a.c_str()); Usage(); }
   }
   if (rom_path.empty()) Usage();
-  if (out_dir.empty() && hash_out.empty()) {
-    std::fprintf(stderr, "--out or --hash-out required\n");
+  if (out_dir.empty() && hash_out.empty() && audio_path.empty()) {
+    std::fprintf(stderr, "--out, --hash-out, or --audio required\n");
     Usage();
   }
 
