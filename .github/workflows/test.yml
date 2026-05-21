@@ -14,6 +14,14 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
+      - name: install linux deps
+        # Ebiten links against X11 + ALSA via cgo; the headers aren't on
+        # the bare ubuntu-latest runner. xorg-dev pulls in libx11-dev
+        # (X11/Xlib.h); libasound2-dev provides alsa.pc for oto's
+        # pkg-config; libgl1-mesa-dev for any GL context creation paths.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev
       - name: build
         run: go build ./...
       - name: vet
@@ -40,6 +48,10 @@ jobs:
         with:
           go-version: '1.25'
           cache: true
+      - name: install linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev
       - name: test -race
         # Race detector catches data races. Skip the Pokemon Emerald
         # tests — race instrumentation slows the emulator ~10x, and
