@@ -29,11 +29,13 @@ jobs:
       - name: vet
         # The 9 stdmethods warnings are pre-existing false positives —
         # our memory-bus ReadByte/WriteByte methods aren't io.Reader/
-        # io.Writer streams. Filter them + the "# package" header lines
-        # that vet prints alongside warnings.
+        # io.Writer streams. Filter:
+        #   - `# pkg` and `# [pkg]` header lines vet prints around
+        #     warnings (the bracketed form is for test compilation)
+        #   - the `method (Read|Write)Byte ...` warning bodies
         run: |
           out=$(go vet ./... 2>&1 \
-            | grep -vE '^# github\.com/|method (Read|Write)Byte\b' \
+            | grep -vE '^# (\[)?github\.com/|method (Read|Write)Byte\b' \
             || true)
           if [ -n "$out" ]; then
             echo "$out"
