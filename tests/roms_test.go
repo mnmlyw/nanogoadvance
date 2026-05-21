@@ -9,7 +9,9 @@
 package tests
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"path/filepath"
 	"testing"
 
@@ -127,8 +129,11 @@ func TestUnsafe(t *testing.T) {
 // TestSaveStateRoundTrip exercises CopyState/LoadState including the
 // scheduler event survival logic added when porting Scheduler::EventClass.
 // Runs arm.gba for 50 frames, snapshots, runs another instance from cold
-// start, loads the snapshot, and verifies the two cores agree on r0..r15
-// after another N frames.
+// start, loads the snapshot, and verifies the two cores agree on
+// CPU regs, all RAM regions, and the PPU output framebuffer after
+// another N frames. The RAM/framebuffer checks catch per-subsystem
+// CopyState/LoadState bugs that don't desync CPU regs but leave PPU,
+// VRAM, OAM, or palette state behind.
 func TestSaveStateRoundTrip(t *testing.T) {
 	data, err := testROMs.ReadFile("testdata/arm.gba")
 	if err != nil {
@@ -166,6 +171,38 @@ func TestSaveStateRoundTrip(t *testing.T) {
 			"r%d", i)
 	}
 	assertEq(t, source.CPU.State.CPSR.V, loaded.CPU.State.CPSR.V, "CPSR")
+
+	// Memory regions — any per-subsystem CopyState bug that leaves
+	// stale bytes shows up here. Compared via SHA-256 hashes so a
+	// failure log isn't a megabyte of bytes.
+	assertEq(t, sha(source.Bus.EWRAM[:]), sha(loaded.Bus.EWRAM[:]), "EWRAM hash")
+	assertEq(t, sha(source.Bus.IWRAM[:]), sha(loaded.Bus.IWRAM[:]), "IWRAM hash")
+	assertEq(t, sha(source.Bus.Palette[:]), sha(loaded.Bus.Palette[:]), "Palette hash")
+	assertEq(t, sha(source.Bus.VRAM[:]), sha(loaded.Bus.VRAM[:]), "VRAM hash")
+	assertEq(t, sha(source.Bus.OAM[:]), sha(loaded.Bus.OAM[:]), "OAM hash")
+
+	// PPU output frame — catches PPU-internal state desync (background
+	// affine counters, sprite drawer slots, merge cycle position, etc.)
+	// that don't reach RAM.
+	sFrame := source.PPU.Output[source.PPU.Frame^1]
+	lFrame := loaded.PPU.Output[loaded.PPU.Frame^1]
+	assertEq(t, sha(framePixelsToBytes(sFrame[:])), sha(framePixelsToBytes(lFrame[:])), "PPU frame hash")
+}
+
+func sha(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+func framePixelsToBytes(fb []uint32) []byte {
+	out := make([]byte, len(fb)*4)
+	for i, p := range fb {
+		out[i*4+0] = uint8(p)
+		out[i*4+1] = uint8(p >> 8)
+		out[i*4+2] = uint8(p >> 16)
+		out[i*4+3] = uint8(p >> 24)
+	}
+	return out
 }
 
 // assertEq compares any comparable state across the save/load divide.
